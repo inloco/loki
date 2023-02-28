@@ -34,9 +34,6 @@ var (
 
 	// regex that extracts the timestamp (RFC3339) from message log
 	timestampRegex = regexp.MustCompile(`\w+ (?P<timestamp>\d+-\d+-\d+T\d+:\d+:\d+\.\d+Z)`)
-
-	// regex that matches valid LabelName characters
-	validLabelNameReplacer = regexp.MustCompile("[^a-zA-Z0-9_]")
 )
 
 const (
@@ -217,8 +214,7 @@ func processS3Event(ctx context.Context, ev *events.S3Event, pc Client, log *log
 
 			elbTagsLabelSet := model.LabelSet{}
 			for key, value := range elbTags {
-				keyAsLabelName := validLabelNameReplacer.ReplaceAllString(key, "_")
-				elbTagsLabelSet[model.LabelName(fmt.Sprintf("__aws_lb_tag_%s", keyAsLabelName))] = model.LabelValue(value)
+				elbTagsLabelSet[model.LabelName(elbTagsAsLabels[key])] = model.LabelValue(value)
 			}
 			if err := mergeWithExtraLabels(elbTagsLabelSet); err != nil {
 				return err

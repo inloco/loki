@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -27,6 +28,8 @@ const (
 	maxErrMsgLen = 1024
 
 	invalidExtraLabelsError = "Invalid value for environment variable EXTRA_LABELS. Expected a comma separated list with an even number of entries. "
+
+	invalidElbTagsAsLabelsError = "Invalid value for environment variable ELB_TAGS_AS_LABELS. Expected a comma separated list of tag:label. "
 )
 
 var (
@@ -39,7 +42,12 @@ var (
 	extraLabels                                               model.LabelSet
 	skipTlsVerify                                             bool
 	printLogLine                                              bool
-	elbTagsAsLabels                                           map[string]struct{}
+	elbTagsAsLabels                                           map[string]string
+)
+
+var (
+	// Regex that matches invalid LabelName characters
+	invalidLabelNameReplacer = regexp.MustCompile("[^a-zA-Z0-9_]")
 )
 
 func setupArguments() {
@@ -64,10 +72,9 @@ func setupArguments() {
 	}
 
 	elbTagsAsLabelsRaw := os.Getenv("ELB_TAGS_AS_LABELS")
-	elbTagsAsLabelsSlice := strings.Split(elbTagsAsLabelsRaw, ",")
-	elbTagsAsLabels = make(map[string]struct{})
-	for _, tag := range elbTagsAsLabelsSlice {
-		elbTagsAsLabels[tag] = struct{}{}
+	elbTagsAsLabels, err = parseElbTagsAsLabels(elbTagsAsLabelsRaw)
+	if err != nil {
+		panic(err)
 	}
 
 	username = os.Getenv("USERNAME")
@@ -137,6 +144,19 @@ func parseExtraLabels(extraLabelsRaw string, omitPrefix bool) (model.LabelSet, e
 	}
 	fmt.Println("extra labels:", extractedLabels)
 	return extractedLabels, nil
+}
+
+func parseElbTagsAsLabels(elbTagsAsLabelsRaw string) (map[string]string, error) {
+	elbTagsAsLabels := make(map[string]string)
+	elbTagsAsLabelsSplit := strings.Split(elbTagsAsLabelsRaw, ",")
+	for _, tagLabelMappingRaw := range elbTagsAsLabelsSplit {
+		tagLabelMappingSplit := strings.Split(tagLabelMappingRaw, ":")
+		if len(tagLabelMappingSplit) == 0 {
+			return nil, fmt.Errorf(invalidElbTagsAsLabelsError)
+		}
+		elbTagsAsLabels[tagLabelMappingSplit[0]] = invalidLabelNameReplacer.ReplaceAllString(tagLabelMappingSplit[len(tagLabelMappingSplit)-1], "_")
+	}
+	return elbTagsAsLabels, nil
 }
 
 func mergeWithExtraLabels(labels model.LabelSet) error {

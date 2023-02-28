@@ -17,6 +17,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
@@ -33,6 +34,9 @@ var (
 
 	// regex that extracts the timestamp (RFC3339) from message log
 	timestampRegex = regexp.MustCompile(`\w+ (?P<timestamp>\d+-\d+-\d+T\d+:\d+:\d+\.\d+Z)`)
+
+	// regex that matches valid LabelName characters
+	validLabelNameReplacer = regexp.MustCompile("[^a-zA-Z0-9_]")
 )
 
 const (
@@ -54,6 +58,22 @@ func getS3Client(ctx context.Context, region string) (*s3.Client, error) {
 		s3Clients[region] = s3Client
 	}
 	return s3Client, nil
+}
+
+func getELBClient(ctx context.Context, region string) (*elasticloadbalancingv2.Client, error) {
+	var elbClient *elasticloadbalancingv2.Client
+
+	if c, ok := elbClients[region]; ok {
+		elbClient = c
+	} else {
+		cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+		if err != nil {
+			return nil, err
+		}
+		elbClient = elasticloadbalancingv2.NewFromConfig(cfg)
+		elbClients[region] = elbClient
+	}
+	return elbClient, nil
 }
 
 func parseS3Log(ctx context.Context, b *batch, labels map[string]string, obj io.ReadCloser) error {
@@ -131,6 +151,51 @@ func getLabels(record events.S3EventRecord) (map[string]string, error) {
 	return labels, nil
 }
 
+func getELBTags(ctx context.Context, labels map[string]string) (map[string]string, error) {
+	elbClient, err := getELBClient(ctx, labels["region"])
+	if err != nil {
+		return nil, err
+	}
+
+	elbName := labels["src"]
+	describeLoadBalancersOutput, err := elbClient.DescribeLoadBalancers(ctx, &elasticloadbalancingv2.DescribeLoadBalancersInput{
+		Names: []string{elbName},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(describeLoadBalancersOutput.LoadBalancers) == 0 {
+		return nil, fmt.Errorf("Failed to get ELB %s on account %s", elbName, labels["account_id"])
+	}
+	elb := describeLoadBalancersOutput.LoadBalancers[0]
+
+	elbArn := elb.LoadBalancerArn
+	describeTagsOutput, err := elbClient.DescribeTags(ctx, &elasticloadbalancingv2.DescribeTagsInput{
+		ResourceArns: []string{*elbArn},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(describeTagsOutput.TagDescriptions) == 0 {
+		return nil, fmt.Errorf("Failed to get tags from ELB %s on account %s", elbName, labels["account_id"])
+	}
+
+	elbTags := make(map[string]string)
+	for _, tag := range describeTagsOutput.TagDescriptions[0].Tags {
+		elbTags[*tag.Key] = *tag.Value
+	}
+
+	return elbTags, nil
+}
+
+func filterElbTags(elbTags map[string]string) {
+	for key := range elbTags {
+		if _, ok := elbTagsAsLabels[key]; !ok {
+			delete(elbTags, key)
+		}
+	}
+}
+
 func processS3Event(ctx context.Context, ev *events.S3Event, pc Client, log *log.Logger) error {
 	batch, err := newBatch(ctx, pc)
 	if err != nil {
@@ -141,6 +206,25 @@ func processS3Event(ctx context.Context, ev *events.S3Event, pc Client, log *log
 		if err != nil {
 			return err
 		}
+
+		if labels["type"] == LB_LOG_TYPE && len(elbTagsAsLabels) > 0 {
+			level.Info(*log).Log("msg", fmt.Sprintf("fetching elb tags: %s", labels["src"]))
+			elbTags, err := getELBTags(ctx, labels)
+			if err != nil {
+				return err
+			}
+			filterElbTags(elbTags)
+
+			elbTagsLabelSet := model.LabelSet{}
+			for key, value := range elbTags {
+				keyAsLabelName := validLabelNameReplacer.ReplaceAllString(key, "_")
+				elbTagsLabelSet[model.LabelName(fmt.Sprintf("__aws_lb_tag_%s", keyAsLabelName))] = model.LabelValue(value)
+			}
+			if err := mergeWithExtraLabels(elbTagsLabelSet); err != nil {
+				return err
+			}
+		}
+
 		level.Info(*log).Log("msg", fmt.Sprintf("fetching s3 file: %s", labels["key"]))
 		s3Client, err := getS3Client(ctx, labels["bucket_region"])
 		if err != nil {

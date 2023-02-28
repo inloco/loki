@@ -16,6 +16,7 @@ import (
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
@@ -34,9 +35,11 @@ var (
 	keepStream                                                bool
 	batchSize                                                 int
 	s3Clients                                                 map[string]*s3.Client
+	elbClients                                                map[string]*elasticloadbalancingv2.Client
 	extraLabels                                               model.LabelSet
 	skipTlsVerify                                             bool
 	printLogLine                                              bool
+	elbTagsAsLabels                                           map[string]struct{}
 )
 
 func setupArguments() {
@@ -58,6 +61,13 @@ func setupArguments() {
 	extraLabels, err = parseExtraLabels(extraLabelsRaw, strings.EqualFold(omitExtraLabelsPrefix, "true"))
 	if err != nil {
 		panic(err)
+	}
+
+	elbTagsAsLabelsRaw := os.Getenv("ELB_TAGS_AS_LABELS")
+	elbTagsAsLabelsSlice := strings.Split(elbTagsAsLabelsRaw, ",")
+	elbTagsAsLabels = make(map[string]struct{})
+	for _, tag := range elbTagsAsLabelsSlice {
+		elbTagsAsLabels[tag] = struct{}{}
 	}
 
 	username = os.Getenv("USERNAME")
@@ -100,6 +110,7 @@ func setupArguments() {
 		printLogLine = false
 	}
 	s3Clients = make(map[string]*s3.Client)
+	elbClients = make(map[string]*elasticloadbalancingv2.Client)
 }
 
 func parseExtraLabels(extraLabelsRaw string, omitPrefix bool) (model.LabelSet, error) {
@@ -126,6 +137,14 @@ func parseExtraLabels(extraLabelsRaw string, omitPrefix bool) (model.LabelSet, e
 	}
 	fmt.Println("extra labels:", extractedLabels)
 	return extractedLabels, nil
+}
+
+func mergeWithExtraLabels(labels model.LabelSet) error {
+	if err := labels.Validate(); err != nil {
+		return fmt.Errorf("Could not merge with extra labels, invalid LabelSet: %s", err)
+	}
+	extraLabels = extraLabels.Merge(labels)
+	return nil
 }
 
 func applyExtraLabels(labels model.LabelSet) model.LabelSet {

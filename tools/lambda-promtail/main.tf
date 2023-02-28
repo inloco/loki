@@ -61,6 +61,14 @@ data "aws_iam_policy_document" "logs" {
     ]
     resources = ["*"]
   }
+
+  statement {
+    actions = [
+      "elasticloadbalancing:DescribeLoadBalancers",
+      "elasticloadbalancing:DescribeTags",
+    ]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_role_policy" "logs" {
@@ -113,6 +121,7 @@ resource "aws_lambda_function" "lambda_promtail" {
       TENANT_ID                = var.tenant_id
       SKIP_TLS_VERIFY          = var.skip_tls_verify
       PRINT_LOG_LINE           = var.print_log_line
+      ELB_TAGS_AS_LABELS       = var.elb_tags_as_labels
     }
   }
 

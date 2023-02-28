@@ -107,3 +107,9 @@ variable "kinesis_stream_name" {
   description = "Enter kinesis name if kinesis stream is configured as event source in lambda."
   default     = []
 }
+
+variable "elb_tags_as_labels" {
+  type        = string
+  description = "Comma separated list of ELB tags, in the format 'name1,name2,...,nameN' to add as labels to entries forwarded by lambda-promtail."
+  default     = ""
+}

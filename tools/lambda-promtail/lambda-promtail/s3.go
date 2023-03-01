@@ -214,11 +214,15 @@ func processS3Event(ctx context.Context, ev *events.S3Event, pc Client, log *log
 			filterElbTags(elbTags)
 
 			for key, value := range elbTags {
+				labelName := model.LabelName(elbTagsAsLabels[key])
+				if !labelName.IsValid() {
+					return fmt.Errorf("Could not create label from ELB tag %s, invalid label name %s", key, elbTagsAsLabels[key])
+				}
+				labelValue := model.LabelValue(value)
+				if !labelValue.IsValid() {
+					return fmt.Errorf("Could not create set label value from ELB tag %s, invalid label value %s", key, value)
+				}
 				elbTagsLabelSet[model.LabelName(elbTagsAsLabels[key])] = model.LabelValue(value)
-			}
-
-			if err := elbTagsLabelSet.Validate(); err != nil {
-				return fmt.Errorf("Could not merge with extra labels, invalid LabelSet: %s", err)
 			}
 		}
 

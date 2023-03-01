@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -43,11 +42,6 @@ var (
 	skipTlsVerify                                             bool
 	printLogLine                                              bool
 	elbTagsAsLabels                                           map[string]string
-)
-
-var (
-	// Regex that matches invalid LabelName characters
-	invalidLabelNameReplacer = regexp.MustCompile("[^a-zA-Z0-9_]")
 )
 
 func setupArguments() {
@@ -154,7 +148,7 @@ func parseElbTagsAsLabels(elbTagsAsLabelsRaw string) (map[string]string, error) 
 		if len(tagLabelMappingSplit) == 0 {
 			return nil, fmt.Errorf(invalidElbTagsAsLabelsError)
 		}
-		elbTagsAsLabels[tagLabelMappingSplit[0]] = invalidLabelNameReplacer.ReplaceAllString(tagLabelMappingSplit[len(tagLabelMappingSplit)-1], "_")
+		elbTagsAsLabels[tagLabelMappingSplit[0]] = tagLabelMappingSplit[len(tagLabelMappingSplit)-1]
 	}
 	return elbTagsAsLabels, nil
 }

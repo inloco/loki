@@ -73,7 +73,7 @@ func getELBClient(ctx context.Context, region string) (*elasticloadbalancingv2.C
 	return elbClient, nil
 }
 
-func parseS3Log(ctx context.Context, b *batch, labels map[string]string, obj io.ReadCloser) error {
+func parseS3Log(ctx context.Context, b *batch, labels map[string]string, elbTagsLabelSet model.LabelSet, obj io.ReadCloser) error {
 	gzreader, err := gzip.NewReader(obj)
 	if err != nil {
 		return err
@@ -94,7 +94,7 @@ func parseS3Log(ctx context.Context, b *batch, labels map[string]string, obj io.
 		model.LabelName("__aws_log_type"):                       model.LabelValue(logType),
 		model.LabelName(fmt.Sprintf("__aws_%s", logType)):       model.LabelValue(labels["src"]),
 		model.LabelName(fmt.Sprintf("__aws_%s_owner", logType)): model.LabelValue(labels["account_id"]),
-	}
+	}.Merge(elbTagsLabelSet)
 
 	ls = applyExtraLabels(ls)
 
@@ -204,6 +204,7 @@ func processS3Event(ctx context.Context, ev *events.S3Event, pc Client, log *log
 			return err
 		}
 
+		elbTagsLabelSet := model.LabelSet{}
 		if labels["type"] == LB_LOG_TYPE && len(elbTagsAsLabels) > 0 {
 			level.Info(*log).Log("msg", fmt.Sprintf("fetching elb tags: %s", labels["src"]))
 			elbTags, err := getELBTags(ctx, labels)
@@ -212,12 +213,12 @@ func processS3Event(ctx context.Context, ev *events.S3Event, pc Client, log *log
 			}
 			filterElbTags(elbTags)
 
-			elbTagsLabelSet := model.LabelSet{}
 			for key, value := range elbTags {
 				elbTagsLabelSet[model.LabelName(elbTagsAsLabels[key])] = model.LabelValue(value)
 			}
-			if err := mergeWithExtraLabels(elbTagsLabelSet); err != nil {
-				return err
+
+			if err := elbTagsLabelSet.Validate(); err != nil {
+				return fmt.Errorf("Could not merge with extra labels, invalid LabelSet: %s", err)
 			}
 		}
 
@@ -235,7 +236,7 @@ func processS3Event(ctx context.Context, ev *events.S3Event, pc Client, log *log
 		if err != nil {
 			return fmt.Errorf("Failed to get object %s from bucket %s on account %s\n, %s", labels["key"], labels["bucket"], labels["bucketOwner"], err)
 		}
-		err = parseS3Log(ctx, batch, labels, obj.Body)
+		err = parseS3Log(ctx, batch, labels, elbTagsLabelSet, obj.Body)
 		if err != nil {
 			return err
 		}

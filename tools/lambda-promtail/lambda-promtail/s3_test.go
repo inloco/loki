@@ -9,6 +9,7 @@ import (
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/grafana/loki/pkg/logproto"
+	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/require"
 )
 
@@ -105,11 +106,12 @@ func Test_getLabels(t *testing.T) {
 
 func Test_parseS3Log(t *testing.T) {
 	type args struct {
-		b         *batch
-		labels    map[string]string
-		obj       io.ReadCloser
-		filename  string
-		batchSize int
+		b               *batch
+		labels          map[string]string
+		obj             io.ReadCloser
+		filename        string
+		batchSize       int
+		elbTagsLabelSet model.LabelSet
 	}
 	tests := []struct {
 		name           string
@@ -130,8 +132,11 @@ func Test_parseS3Log(t *testing.T) {
 					"src":        "source",
 					"account_id": "123456789",
 				},
+				elbTagsLabelSet: model.LabelSet{
+					model.LabelName("test"): model.LabelValue("parseS3Log.vpcflowlogs"),
+				},
 			},
-			expectedStream: `{__aws_log_type="s3_vpc_flow", __aws_s3_vpc_flow="source", __aws_s3_vpc_flow_owner="123456789"}`,
+			expectedStream: `{__aws_log_type="s3_vpc_flow", __aws_s3_vpc_flow="source", __aws_s3_vpc_flow_owner="123456789", test="parseS3Log.vpcflowlogs"}`,
 			wantErr:        false,
 		},
 		{
@@ -147,8 +152,11 @@ func Test_parseS3Log(t *testing.T) {
 					"src":        "source",
 					"account_id": "123456789",
 				},
+				elbTagsLabelSet: model.LabelSet{
+					model.LabelName("test"): model.LabelValue("parseS3Log.albaccesslogs"),
+				},
 			},
-			expectedStream: `{__aws_log_type="s3_lb", __aws_s3_lb="source", __aws_s3_lb_owner="123456789"}`,
+			expectedStream: `{__aws_log_type="s3_lb", __aws_s3_lb="source", __aws_s3_lb_owner="123456789", test="parseS3Log.albaccesslogs"}`,
 			wantErr:        false,
 		},
 	}
@@ -161,7 +169,7 @@ func Test_parseS3Log(t *testing.T) {
 				t.Errorf("parseS3Log() failed to open test file: %s - %v", tt.args.filename, err)
 			}
 
-			if err := parseS3Log(context.Background(), tt.args.b, tt.args.labels, tt.args.obj); (err != nil) != tt.wantErr {
+			if err := parseS3Log(context.Background(), tt.args.b, tt.args.labels, tt.args.elbTagsLabelSet, tt.args.obj); (err != nil) != tt.wantErr {
 				t.Errorf("parseS3Log() error = %v, wantErr %v", err, tt.wantErr)
 			}
 

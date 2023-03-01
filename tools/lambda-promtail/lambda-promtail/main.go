@@ -159,14 +159,6 @@ func parseElbTagsAsLabels(elbTagsAsLabelsRaw string) (map[string]string, error) 
 	return elbTagsAsLabels, nil
 }
 
-func mergeWithExtraLabels(labels model.LabelSet) error {
-	if err := labels.Validate(); err != nil {
-		return fmt.Errorf("Could not merge with extra labels, invalid LabelSet: %s", err)
-	}
-	extraLabels = extraLabels.Merge(labels)
-	return nil
-}
-
 func applyExtraLabels(labels model.LabelSet) model.LabelSet {
 	return labels.Merge(extraLabels)
 }

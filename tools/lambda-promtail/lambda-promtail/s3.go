@@ -193,6 +193,62 @@ func filterElbTags(elbTags map[string]string) {
 	}
 }
 
+func addToElbTagsLabelSet(labelSet model.LabelSet, name string, value string, tagKey string) error {
+	labelName := model.LabelName(name)
+	if !labelName.IsValid() {
+		return fmt.Errorf("Could not define labels from tag %s: invalid label name %s", tagKey, name)
+	}
+	labelValue := model.LabelValue(value)
+	if !labelValue.IsValid() {
+		return fmt.Errorf("Could not define labels from tag %s: invalid label value %s", tagKey, value)
+	}
+	labelSet[model.LabelName(name)] = model.LabelValue(value)
+	return nil
+}
+
+func getElbTagsLabelSet(ctx context.Context, labels map[string]string, log *log.Logger) (model.LabelSet, error) {
+	elbTags, err := getELBTags(ctx, labels)
+	if err != nil {
+		return nil, err
+	}
+	filterElbTags(elbTags)
+
+	elbTagsLabelSet := model.LabelSet{}
+	for tagKey, tagValue := range elbTags {
+		elbTagAsLabels := elbTagsAsLabels[tagKey]
+		if elbTagAsLabels[0] == '/' && elbTagAsLabels[len(elbTagAsLabels)-1] == '/' {
+			labelsValuesRE, err := regexp.Compile(elbTagAsLabels[1 : len(elbTagAsLabels)-1])
+			if err != nil {
+				return nil, fmt.Errorf("Could not define labels from tag %s: invalid regular expression %s", tagKey, elbTagAsLabels)
+			}
+
+			labelsNames := labelsValuesRE.SubexpNames()
+			labelsValues := labelsValuesRE.FindStringSubmatch(tagValue)
+			for i, labelName := range labelsNames {
+				if i >= len(labelsValues) {
+					level.Warn(*log).Log("msg", fmt.Sprintf("No match found for label %s in tag %s", labelName, tagKey))
+					break
+				}
+				if i != 0 && labelName == "" {
+					return nil, fmt.Errorf("Could not define labels from tag %s: capture group must be named", tagKey)
+				}
+				if i != 0 {
+					if err := addToElbTagsLabelSet(elbTagsLabelSet, labelName, labelsValues[i], tagKey); err != nil {
+						return nil, err
+					}
+				}
+			}
+			continue
+		}
+
+		if err := addToElbTagsLabelSet(elbTagsLabelSet, elbTagsAsLabels[tagKey], tagValue, tagKey); err != nil {
+			return nil, err
+		}
+	}
+
+	return elbTagsLabelSet, nil
+}
+
 func processS3Event(ctx context.Context, ev *events.S3Event, pc Client, log *log.Logger) error {
 	batch, err := newBatch(ctx, pc)
 	if err != nil {
@@ -207,22 +263,9 @@ func processS3Event(ctx context.Context, ev *events.S3Event, pc Client, log *log
 		elbTagsLabelSet := model.LabelSet{}
 		if labels["type"] == LB_LOG_TYPE && len(elbTagsAsLabels) > 0 {
 			level.Info(*log).Log("msg", fmt.Sprintf("fetching elb tags: %s", labels["src"]))
-			elbTags, err := getELBTags(ctx, labels)
+			elbTagsLabelSet, err = getElbTagsLabelSet(ctx, labels, log)
 			if err != nil {
 				return err
-			}
-			filterElbTags(elbTags)
-
-			for key, value := range elbTags {
-				labelName := model.LabelName(elbTagsAsLabels[key])
-				if !labelName.IsValid() {
-					return fmt.Errorf("Could not create label from ELB tag %s, invalid label name %s", key, elbTagsAsLabels[key])
-				}
-				labelValue := model.LabelValue(value)
-				if !labelValue.IsValid() {
-					return fmt.Errorf("Could not create set label value from ELB tag %s, invalid label value %s", key, value)
-				}
-				elbTagsLabelSet[model.LabelName(elbTagsAsLabels[key])] = model.LabelValue(value)
 			}
 		}
 

@@ -110,6 +110,6 @@ variable "kinesis_stream_name" {
 
 variable "elb_tags_as_labels" {
   type        = string
-  description = "Comma separated list of ELB tags to add as labels to entries forwarded by lambda-promtail, in the formmat 'tag1[:label1],tag2[:label2],...,tagN[:labelN]'. (if labelN is ommited, tagN is used as the label name)"
+  description = "Comma separated list of ELB tags to add as labels to entries forwarded by lambda-promtail, in the format 'tag1[:label1],tag2[:label2],...,tagN[:labelN]'. (if labelN is ommited, tagN is used as the label name)"
   default     = ""
 }

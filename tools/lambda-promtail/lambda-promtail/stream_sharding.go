@@ -28,7 +28,7 @@ func (tracker *DataRateTracker) Update(dataSize int64) {
 	tracker.totalData += dataSize
 	elapsedTime := time.Since(tracker.startTime).Seconds()
 	if elapsedTime >= tracker.windowSize.Seconds() {
-		tracker.rate = float64(tracker.totalData) / elapsedTime / (1024 * 1024)
+		tracker.rate = float64(tracker.totalData) / elapsedTime
 		tracker.totalData = 0
 	}
 }
@@ -54,7 +54,7 @@ func NewStreamSharding(streamDesiredRate float64) *StreamSharding {
 
 func (sharding *StreamSharding) Update(dataSize int64) {
 	sharding.dataRateTracker.Update(dataSize)
-	sharding.shards = int64(sharding.dataRateTracker.GetRate() / sharding.streamDesiredRate)
+	sharding.shards = int64(sharding.dataRateTracker.GetRate() / (1024 * 1024) / sharding.streamDesiredRate)
 }
 
 func (sharding *StreamSharding) GetRandomShard() int64 {

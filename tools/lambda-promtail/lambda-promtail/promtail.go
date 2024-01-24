@@ -75,6 +75,7 @@ func (b *batch) add(ctx context.Context, e entry) error {
 		streamSharding = NewStreamSharding(b.streamDesiredRate)
 		b.streamsSharding[labels] = streamSharding
 	}
+	streamSharding.Update(int64(len(e.entry.Line)))
 	e.labels[streamShardLabel] = model.LabelValue(fmt.Sprintf("%d", streamSharding.GetRandomShard()))
 	labels = labelsMapToString(e.labels, reservedLabelTenantID)
 

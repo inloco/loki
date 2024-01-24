@@ -41,8 +41,8 @@ func parseCWEvent(ctx context.Context, b *batch, ev *events.CloudwatchLogsEvent)
 	return nil
 }
 
-func processCWEvent(ctx context.Context, ev *events.CloudwatchLogsEvent, pClient Client, streamDesiredRate float64) error {
-	batch, err := newBatch(ctx, pClient, streamDesiredRate)
+func processCWEvent(ctx context.Context, ev *events.CloudwatchLogsEvent, pClient Client, streamDesiredRate float64, streamRateTrackerWindowSize time.Duration) error {
+	batch, err := newBatch(ctx, pClient, streamDesiredRate, streamRateTrackerWindowSize)
 	if err != nil {
 		return err
 	}

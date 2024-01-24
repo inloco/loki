@@ -5,10 +5,6 @@ import (
 	"time"
 )
 
-const (
-	STREAM_RATE_TRACKER_WINDOW_SIZE = 60 * time.Second
-)
-
 type DataRateTracker struct {
 	windowSize time.Duration
 	startTime  time.Time
@@ -45,9 +41,9 @@ type StreamSharding struct {
 	rand              *rand.Rand
 }
 
-func NewStreamSharding(streamDesiredRate float64) *StreamSharding {
+func NewStreamSharding(streamDesiredRate float64, streamRateTrackerWindowSize time.Duration) *StreamSharding {
 	return &StreamSharding{
-		dataRateTracker:   NewDataRateTracker(STREAM_RATE_TRACKER_WINDOW_SIZE),
+		dataRateTracker:   NewDataRateTracker(streamRateTrackerWindowSize),
 		streamDesiredRate: streamDesiredRate,
 		rand:              rand.New(rand.NewSource(time.Now().UnixNano())),
 	}

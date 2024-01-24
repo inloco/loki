@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-kit/log/level"
 	"github.com/grafana/dskit/backoff"
@@ -37,6 +38,7 @@ var (
 	keepStream                                                bool
 	batchSize                                                 int
 	streamDesiredRate                                         float64
+	streamRateTrackerWindowSize                               time.Duration
 	s3Clients                                                 map[string]*s3.Client
 	elbClients                                                map[string]*elasticloadbalancingv2.Client
 	extraLabels                                               model.LabelSet
@@ -110,6 +112,12 @@ func setupArguments() {
 	streamDesiredRate = 3
 	if streamDesiredRateRaw != "" {
 		streamDesiredRate, _ = strconv.ParseFloat(streamDesiredRateRaw, 64)
+	}
+
+	streamRateTrackerWindowSizeRaw := os.Getenv("STREAM_RATE_TRACKER_WINDOW_SIZE")
+	streamRateTrackerWindowSize = 100 * time.Millisecond
+	if streamRateTrackerWindowSizeRaw != "" {
+		streamRateTrackerWindowSize, _ = time.ParseDuration(streamRateTrackerWindowSizeRaw)
 	}
 
 	print := os.Getenv("PRINT_LOG_LINE")
@@ -217,15 +225,15 @@ func handler(ctx context.Context, ev map[string]interface{}) error {
 
 	switch evt := event.(type) {
 	case *events.S3Event:
-		err := processS3Event(ctx, evt, pClient, pClient.log, streamDesiredRate)
+		err := processS3Event(ctx, evt, pClient, pClient.log, streamDesiredRate, streamRateTrackerWindowSize)
 		level.Error(*pClient.log).Log("err", err)
 		return err
 	case *events.CloudwatchLogsEvent:
-		err := processCWEvent(ctx, evt, pClient, streamDesiredRate)
+		err := processCWEvent(ctx, evt, pClient, streamDesiredRate, streamRateTrackerWindowSize)
 		level.Error(*pClient.log).Log("err", err)
 		return err
 	case *events.KinesisEvent:
-		err := processKinesisEvent(ctx, evt, pClient, streamDesiredRate)
+		err := processKinesisEvent(ctx, evt, pClient, streamDesiredRate, streamRateTrackerWindowSize)
 		level.Error(*pClient.log).Log("err", err)
 		return err
 	case *events.SQSEvent:

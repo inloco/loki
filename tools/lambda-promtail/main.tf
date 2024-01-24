@@ -110,19 +110,20 @@ resource "aws_lambda_function" "lambda_promtail" {
 
   environment {
     variables = {
-      WRITE_ADDRESS            = var.write_address
-      USERNAME                 = var.username
-      PASSWORD                 = var.password
-      BEARER_TOKEN             = var.bearer_token
-      KEEP_STREAM              = var.keep_stream
-      BATCH_SIZE               = var.batch_size
-      STREAM_DESIRED_RATE      = var.stream_desired_rate
-      EXTRA_LABELS             = var.extra_labels
-      OMIT_EXTRA_LABELS_PREFIX = var.omit_extra_labels_prefix ? "true" : "false"
-      TENANT_ID                = var.tenant_id
-      SKIP_TLS_VERIFY          = var.skip_tls_verify
-      PRINT_LOG_LINE           = var.print_log_line
-      ELB_TAGS_AS_LABELS       = var.elb_tags_as_labels
+      WRITE_ADDRESS                   = var.write_address
+      USERNAME                        = var.username
+      PASSWORD                        = var.password
+      BEARER_TOKEN                    = var.bearer_token
+      KEEP_STREAM                     = var.keep_stream
+      BATCH_SIZE                      = var.batch_size
+      STREAM_DESIRED_RATE             = var.stream_desired_rate
+      EXTRA_LABELS                    = var.extra_labels
+      OMIT_EXTRA_LABELS_PREFIX        = var.omit_extra_labels_prefix ? "true" : "false"
+      TENANT_ID                       = var.tenant_id
+      SKIP_TLS_VERIFY                 = var.skip_tls_verify
+      PRINT_LOG_LINE                  = var.print_log_line
+      ELB_TAGS_AS_LABELS              = var.elb_tags_as_labels
+      STREAM_RATE_TRACKER_WINDOW_SIZE = var.stream_rate_tracker_window_size
     }
   }
 

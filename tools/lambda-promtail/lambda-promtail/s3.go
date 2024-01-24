@@ -249,8 +249,8 @@ func getElbTagsLabelSet(ctx context.Context, labels map[string]string, log *log.
 	return elbTagsLabelSet, nil
 }
 
-func processS3Event(ctx context.Context, ev *events.S3Event, pc Client, log *log.Logger, streamDesiredRate float64) error {
-	batch, err := newBatch(ctx, pc, streamDesiredRate)
+func processS3Event(ctx context.Context, ev *events.S3Event, pc Client, log *log.Logger, streamDesiredRate float64, streamRateTrackerWindowSize time.Duration) error {
+	batch, err := newBatch(ctx, pc, streamDesiredRate, streamRateTrackerWindowSize)
 	if err != nil {
 		return err
 	}

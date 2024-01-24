@@ -21,6 +21,7 @@ func NewDataRateTracker(windowSize time.Duration) *DataRateTracker {
 		windowSize: windowSize,
 		startTime:  time.Now(),
 		totalData:  0,
+		rate:       0,
 	}
 }
 

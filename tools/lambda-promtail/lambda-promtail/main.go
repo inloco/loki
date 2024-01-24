@@ -109,15 +109,15 @@ func setupArguments() {
 	}
 
 	streamDesiredRateRaw := os.Getenv("STREAM_DESIRED_RATE")
-	streamDesiredRate = 3
-	if streamDesiredRateRaw != "" {
-		streamDesiredRate, _ = strconv.ParseFloat(streamDesiredRateRaw, 64)
+	streamDesiredRate, err = strconv.ParseFloat(streamDesiredRateRaw, 64)
+	if err != nil {
+		panic(err)
 	}
 
 	streamRateTrackerWindowSizeRaw := os.Getenv("STREAM_RATE_TRACKER_WINDOW_SIZE")
-	streamRateTrackerWindowSize = 100 * time.Millisecond
-	if streamRateTrackerWindowSizeRaw != "" {
-		streamRateTrackerWindowSize, _ = time.ParseDuration(streamRateTrackerWindowSizeRaw)
+	streamRateTrackerWindowSize, err = time.ParseDuration(streamRateTrackerWindowSizeRaw)
+	if err != nil {
+		panic(err)
 	}
 
 	print := os.Getenv("PRINT_LOG_LINE")

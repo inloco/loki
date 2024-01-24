@@ -36,6 +36,7 @@ var (
 	username, password, extraLabelsRaw, tenantID, bearerToken string
 	keepStream                                                bool
 	batchSize                                                 int
+	streamDesiredRate                                         float64
 	s3Clients                                                 map[string]*s3.Client
 	elbClients                                                map[string]*elasticloadbalancingv2.Client
 	extraLabels                                               model.LabelSet
@@ -103,6 +104,12 @@ func setupArguments() {
 	batchSize = 131072
 	if batch != "" {
 		batchSize, _ = strconv.Atoi(batch)
+	}
+
+	streamDesiredRateRaw := os.Getenv("STREAM_DESIRED_RATE")
+	streamDesiredRate = 3
+	if streamDesiredRateRaw != "" {
+		streamDesiredRate, _ = strconv.ParseFloat(streamDesiredRateRaw, 64)
 	}
 
 	print := os.Getenv("PRINT_LOG_LINE")
@@ -210,15 +217,15 @@ func handler(ctx context.Context, ev map[string]interface{}) error {
 
 	switch evt := event.(type) {
 	case *events.S3Event:
-		err := processS3Event(ctx, evt, pClient, pClient.log)
+		err := processS3Event(ctx, evt, pClient, pClient.log, streamDesiredRate)
 		level.Error(*pClient.log).Log("err", err)
 		return err
 	case *events.CloudwatchLogsEvent:
-		err := processCWEvent(ctx, evt, pClient)
+		err := processCWEvent(ctx, evt, pClient, streamDesiredRate)
 		level.Error(*pClient.log).Log("err", err)
 		return err
 	case *events.KinesisEvent:
-		err := processKinesisEvent(ctx, evt, pClient)
+		err := processKinesisEvent(ctx, evt, pClient, streamDesiredRate)
 		level.Error(*pClient.log).Log("err", err)
 		return err
 	case *events.SQSEvent:

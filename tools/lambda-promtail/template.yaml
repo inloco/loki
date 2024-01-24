@@ -55,6 +55,10 @@ Parameters:
     Description: Comma separated list of ELB tags to add as labels to entries forwarded by lambda-promtail, in the format 'tag1[:label1],tag2[:label2],...,tagN[:labelN]'. (if labelN is ommited, tagN is used as the label name)
     Type: String
     Default: ""
+  StreamDesiredRate:
+    Description: Determines the desired rate of log ingestion per stream (MB/s).
+    Type: String
+    Default: "3"
 
 Resources:
   LambdaPromtailRole:
@@ -106,6 +110,7 @@ Resources:
           TENANT_ID: !Ref TenantID
           SKIP_TLS_VERIFY: !Ref SkipTlsVerify
           ELB_TAGS_AS_LABELS: !Ref ELBTagsAsLabels
+          STREAM_DESIRED_RATE: !Ref StreamDesiredRate
   LambdaPromtailVersion:
     Type: AWS::Lambda::Version
     Properties:

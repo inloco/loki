@@ -27,6 +27,8 @@ const (
 
 	reservedLabelTenantID = "__tenant_id__"
 
+	streamShardLabel = "__lambda_promtail_stream_shard__"
+
 	userAgent = "lambda-promtail"
 )
 
@@ -36,9 +38,11 @@ type entry struct {
 }
 
 type batch struct {
-	streams map[string]*logproto.Stream
-	size    int
-	client  Client
+	streams           map[string]*logproto.Stream
+	streamsSharding   map[string]*StreamSharding
+	streamDesiredRate float64
+	size              int
+	client            Client
 }
 
 type batchIf interface {
@@ -48,10 +52,11 @@ type batchIf interface {
 	flushBatch(ctx context.Context) error
 }
 
-func newBatch(ctx context.Context, pClient Client, entries ...entry) (*batch, error) {
+func newBatch(ctx context.Context, pClient Client, streamDesiredRate float64, entries ...entry) (*batch, error) {
 	b := &batch{
-		streams: map[string]*logproto.Stream{},
-		client:  pClient,
+		streams:         map[string]*logproto.Stream{},
+		streamsSharding: map[string]*StreamSharding{},
+		client:          pClient,
 	}
 
 	for _, entry := range entries {
@@ -65,6 +70,14 @@ func newBatch(ctx context.Context, pClient Client, entries ...entry) (*batch, er
 
 func (b *batch) add(ctx context.Context, e entry) error {
 	labels := labelsMapToString(e.labels, reservedLabelTenantID)
+	streamSharding, ok := b.streamsSharding[labels]
+	if !ok {
+		streamSharding = NewStreamSharding(b.streamDesiredRate)
+		b.streamsSharding[labels] = streamSharding
+	}
+	e.labels[streamShardLabel] = model.LabelValue(fmt.Sprintf("%d", streamSharding.GetRandomShard()))
+	labels = labelsMapToString(e.labels, reservedLabelTenantID)
+
 	stream, ok := b.streams[labels]
 	if !ok {
 		b.streams[labels] = &logproto.Stream{

@@ -15,7 +15,7 @@ func parseKinesisEvent(ctx context.Context, b batchIf, ev *events.KinesisEvent) 
 	}
 
 	for _, record := range ev.Records {
-		timestamp := time.Unix(record.Kinesis.ApproximateArrivalTimestamp.Unix(),0)
+		timestamp := time.Unix(record.Kinesis.ApproximateArrivalTimestamp.Unix(), 0)
 
 		labels := model.LabelSet{
 			model.LabelName("__aws_log_type"):                 model.LabelValue("kinesis"),
@@ -33,8 +33,8 @@ func parseKinesisEvent(ctx context.Context, b batchIf, ev *events.KinesisEvent) 
 	return nil
 }
 
-func processKinesisEvent(ctx context.Context, ev *events.KinesisEvent, pClient Client) error {
-	batch, _ := newBatch(ctx, pClient)
+func processKinesisEvent(ctx context.Context, ev *events.KinesisEvent, pClient Client, streamDesiredRate float64) error {
+	batch, _ := newBatch(ctx, pClient, streamDesiredRate)
 
 	err := parseKinesisEvent(ctx, batch, ev)
 	if err != nil {

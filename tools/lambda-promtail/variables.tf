@@ -78,6 +78,12 @@ variable "batch_size" {
   default     = ""
 }
 
+variable "stream_desired_rate" {
+  type = string
+  description = "Determines the desired rate of log ingestion per stream (MB/s)."
+  default = "3"
+}
+
 variable "lambda_vpc_subnets" {
   type        = list(string)
   description = "List of subnet IDs associated with the Lambda function."

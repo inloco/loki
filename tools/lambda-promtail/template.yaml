@@ -51,6 +51,10 @@ Parameters:
     Description: Determines whether to verify the TLS certificate
     Type: String
     Default: "false"
+  ELBTagsAsLabels:
+    Description: Comma separated list of ELB tags to add as labels to entries forwarded by lambda-promtail, in the format 'tag1[:label1],tag2[:label2],...,tagN[:labelN]'. (if labelN is ommited, tagN is used as the label name)
+    Type: String
+    Default: ""
 
 Resources:
   LambdaPromtailRole:
@@ -101,6 +105,7 @@ Resources:
           OMIT_EXTRA_LABELS_PREFIX: !Ref OmitExtraLabelsPrefix
           TENANT_ID: !Ref TenantID
           SKIP_TLS_VERIFY: !Ref SkipTlsVerify
+          ELB_TAGS_AS_LABELS: !Ref ELBTagsAsLabels
   LambdaPromtailVersion:
     Type: AWS::Lambda::Version
     Properties:

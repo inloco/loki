@@ -17,6 +17,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
@@ -56,7 +57,23 @@ func getS3Client(ctx context.Context, region string) (*s3.Client, error) {
 	return s3Client, nil
 }
 
-func parseS3Log(ctx context.Context, b *batch, labels map[string]string, obj io.ReadCloser) error {
+func getELBClient(ctx context.Context, region string) (*elasticloadbalancingv2.Client, error) {
+	var elbClient *elasticloadbalancingv2.Client
+
+	if c, ok := elbClients[region]; ok {
+		elbClient = c
+	} else {
+		cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+		if err != nil {
+			return nil, err
+		}
+		elbClient = elasticloadbalancingv2.NewFromConfig(cfg)
+		elbClients[region] = elbClient
+	}
+	return elbClient, nil
+}
+
+func parseS3Log(ctx context.Context, b *batch, labels map[string]string, elbTagsLabelSet model.LabelSet, obj io.ReadCloser) error {
 	gzreader, err := gzip.NewReader(obj)
 	if err != nil {
 		return err
@@ -77,7 +94,7 @@ func parseS3Log(ctx context.Context, b *batch, labels map[string]string, obj io.
 		model.LabelName("__aws_log_type"):                       model.LabelValue(logType),
 		model.LabelName(fmt.Sprintf("__aws_%s", logType)):       model.LabelValue(labels["src"]),
 		model.LabelName(fmt.Sprintf("__aws_%s_owner", logType)): model.LabelValue(labels["account_id"]),
-	}
+	}.Merge(elbTagsLabelSet)
 
 	ls = applyExtraLabels(ls)
 
@@ -131,6 +148,107 @@ func getLabels(record events.S3EventRecord) (map[string]string, error) {
 	return labels, nil
 }
 
+func getELBTags(ctx context.Context, labels map[string]string) (map[string]string, error) {
+	elbClient, err := getELBClient(ctx, labels["region"])
+	if err != nil {
+		return nil, err
+	}
+
+	elbName := labels["src"]
+	describeLoadBalancersOutput, err := elbClient.DescribeLoadBalancers(ctx, &elasticloadbalancingv2.DescribeLoadBalancersInput{
+		Names: []string{elbName},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(describeLoadBalancersOutput.LoadBalancers) == 0 {
+		return nil, fmt.Errorf("Failed to get ELB %s on account %s", elbName, labels["account_id"])
+	}
+	elb := describeLoadBalancersOutput.LoadBalancers[0]
+
+	elbArn := elb.LoadBalancerArn
+	describeTagsOutput, err := elbClient.DescribeTags(ctx, &elasticloadbalancingv2.DescribeTagsInput{
+		ResourceArns: []string{*elbArn},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(describeTagsOutput.TagDescriptions) == 0 {
+		return nil, fmt.Errorf("Failed to get tags from ELB %s on account %s", elbName, labels["account_id"])
+	}
+
+	elbTags := make(map[string]string)
+	for _, tag := range describeTagsOutput.TagDescriptions[0].Tags {
+		elbTags[*tag.Key] = *tag.Value
+	}
+
+	return elbTags, nil
+}
+
+func filterElbTags(elbTags map[string]string) {
+	for key := range elbTags {
+		if _, ok := elbTagsAsLabels[key]; !ok {
+			delete(elbTags, key)
+		}
+	}
+}
+
+func addToElbTagsLabelSet(labelSet model.LabelSet, name string, value string, tagKey string) error {
+	labelName := model.LabelName(name)
+	if !labelName.IsValid() {
+		return fmt.Errorf("Could not define labels from tag %s: invalid label name %s", tagKey, name)
+	}
+	labelValue := model.LabelValue(value)
+	if !labelValue.IsValid() {
+		return fmt.Errorf("Could not define labels from tag %s: invalid label value %s", tagKey, value)
+	}
+	labelSet[model.LabelName(name)] = model.LabelValue(value)
+	return nil
+}
+
+func getElbTagsLabelSet(ctx context.Context, labels map[string]string, log *log.Logger) (model.LabelSet, error) {
+	elbTags, err := getELBTags(ctx, labels)
+	if err != nil {
+		return nil, err
+	}
+	filterElbTags(elbTags)
+
+	elbTagsLabelSet := model.LabelSet{}
+	for tagKey, tagValue := range elbTags {
+		elbTagAsLabels := elbTagsAsLabels[tagKey]
+		if elbTagAsLabels[0] == '/' && elbTagAsLabels[len(elbTagAsLabels)-1] == '/' {
+			labelsValuesRE, err := regexp.Compile(elbTagAsLabels[1 : len(elbTagAsLabels)-1])
+			if err != nil {
+				return nil, fmt.Errorf("Could not define labels from tag %s: invalid regular expression %s", tagKey, elbTagAsLabels)
+			}
+
+			labelsNames := labelsValuesRE.SubexpNames()
+			labelsValues := labelsValuesRE.FindStringSubmatch(tagValue)
+			for i, labelName := range labelsNames {
+				if i >= len(labelsValues) {
+					level.Warn(*log).Log("msg", fmt.Sprintf("No match found for label %s in tag %s", labelName, tagKey))
+					break
+				}
+				if i != 0 && labelName == "" {
+					return nil, fmt.Errorf("Could not define labels from tag %s: capture group must be named", tagKey)
+				}
+				if i != 0 {
+					if err := addToElbTagsLabelSet(elbTagsLabelSet, labelName, labelsValues[i], tagKey); err != nil {
+						return nil, err
+					}
+				}
+			}
+			continue
+		}
+
+		if err := addToElbTagsLabelSet(elbTagsLabelSet, elbTagsAsLabels[tagKey], tagValue, tagKey); err != nil {
+			return nil, err
+		}
+	}
+
+	return elbTagsLabelSet, nil
+}
+
 func processS3Event(ctx context.Context, ev *events.S3Event, pc Client, log *log.Logger) error {
 	batch, err := newBatch(ctx, pc)
 	if err != nil {
@@ -141,6 +259,16 @@ func processS3Event(ctx context.Context, ev *events.S3Event, pc Client, log *log
 		if err != nil {
 			return err
 		}
+
+		elbTagsLabelSet := model.LabelSet{}
+		if labels["type"] == LB_LOG_TYPE && len(elbTagsAsLabels) > 0 {
+			level.Info(*log).Log("msg", fmt.Sprintf("fetching elb tags: %s", labels["src"]))
+			elbTagsLabelSet, err = getElbTagsLabelSet(ctx, labels, log)
+			if err != nil {
+				return err
+			}
+		}
+
 		level.Info(*log).Log("msg", fmt.Sprintf("fetching s3 file: %s", labels["key"]))
 		s3Client, err := getS3Client(ctx, labels["bucket_region"])
 		if err != nil {
@@ -155,7 +283,7 @@ func processS3Event(ctx context.Context, ev *events.S3Event, pc Client, log *log
 		if err != nil {
 			return fmt.Errorf("Failed to get object %s from bucket %s on account %s\n, %s", labels["key"], labels["bucket"], labels["bucketOwner"], err)
 		}
-		err = parseS3Log(ctx, batch, labels, obj.Body)
+		err = parseS3Log(ctx, batch, labels, elbTagsLabelSet, obj.Body)
 		if err != nil {
 			return err
 		}

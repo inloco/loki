@@ -16,6 +16,7 @@ import (
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
@@ -26,6 +27,8 @@ const (
 	maxErrMsgLen = 1024
 
 	invalidExtraLabelsError = "Invalid value for environment variable EXTRA_LABELS. Expected a comma separated list with an even number of entries. "
+
+	invalidElbTagsAsLabelsError = "Invalid value for environment variable ELB_TAGS_AS_LABELS. Expected a comma separated list of tag:label. "
 )
 
 var (
@@ -34,9 +37,11 @@ var (
 	keepStream                                                bool
 	batchSize                                                 int
 	s3Clients                                                 map[string]*s3.Client
+	elbClients                                                map[string]*elasticloadbalancingv2.Client
 	extraLabels                                               model.LabelSet
 	skipTlsVerify                                             bool
 	printLogLine                                              bool
+	elbTagsAsLabels                                           map[string]string
 )
 
 func setupArguments() {
@@ -56,6 +61,12 @@ func setupArguments() {
 	omitExtraLabelsPrefix := os.Getenv("OMIT_EXTRA_LABELS_PREFIX")
 	extraLabelsRaw = os.Getenv("EXTRA_LABELS")
 	extraLabels, err = parseExtraLabels(extraLabelsRaw, strings.EqualFold(omitExtraLabelsPrefix, "true"))
+	if err != nil {
+		panic(err)
+	}
+
+	elbTagsAsLabelsRaw := os.Getenv("ELB_TAGS_AS_LABELS")
+	elbTagsAsLabels, err = parseElbTagsAsLabels(elbTagsAsLabelsRaw)
 	if err != nil {
 		panic(err)
 	}
@@ -100,6 +111,7 @@ func setupArguments() {
 		printLogLine = false
 	}
 	s3Clients = make(map[string]*s3.Client)
+	elbClients = make(map[string]*elasticloadbalancingv2.Client)
 }
 
 func parseExtraLabels(extraLabelsRaw string, omitPrefix bool) (model.LabelSet, error) {
@@ -126,6 +138,19 @@ func parseExtraLabels(extraLabelsRaw string, omitPrefix bool) (model.LabelSet, e
 	}
 	fmt.Println("extra labels:", extractedLabels)
 	return extractedLabels, nil
+}
+
+func parseElbTagsAsLabels(elbTagsAsLabelsRaw string) (map[string]string, error) {
+	elbTagsAsLabels := make(map[string]string)
+	elbTagsAsLabelsSplit := strings.Split(elbTagsAsLabelsRaw, ",")
+	for _, tagLabelMappingRaw := range elbTagsAsLabelsSplit {
+		tagLabelMappingSplit := strings.Split(tagLabelMappingRaw, ":")
+		if len(tagLabelMappingSplit) == 0 {
+			return nil, fmt.Errorf(invalidElbTagsAsLabelsError)
+		}
+		elbTagsAsLabels[tagLabelMappingSplit[0]] = tagLabelMappingSplit[len(tagLabelMappingSplit)-1]
+	}
+	return elbTagsAsLabels, nil
 }
 
 func applyExtraLabels(labels model.LabelSet) model.LabelSet {
@@ -185,13 +210,21 @@ func handler(ctx context.Context, ev map[string]interface{}) error {
 
 	switch evt := event.(type) {
 	case *events.S3Event:
-		return processS3Event(ctx, evt, pClient, pClient.log)
+		err := processS3Event(ctx, evt, pClient, pClient.log)
+		level.Error(*pClient.log).Log("err", err)
+		return err
 	case *events.CloudwatchLogsEvent:
-		return processCWEvent(ctx, evt, pClient)
+		err := processCWEvent(ctx, evt, pClient)
+		level.Error(*pClient.log).Log("err", err)
+		return err
 	case *events.KinesisEvent:
-		return processKinesisEvent(ctx, evt, pClient)
+		err := processKinesisEvent(ctx, evt, pClient)
+		level.Error(*pClient.log).Log("err", err)
+		return err
 	case *events.SQSEvent:
-		return processSQSEvent(ctx, evt)
+		err := processSQSEvent(ctx, evt)
+		level.Error(*pClient.log).Log("err", err)
+		return err
 	// When setting up S3 Notification on a bucket, a test event is first sent, see: https://docs.aws.amazon.com/AmazonS3/latest/userguide/notification-content-structure.html
 	case *events.S3TestEvent:
 		return nil

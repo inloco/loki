@@ -63,11 +63,11 @@ func (s *StreamSharding) Update(dataSize int64) {
 	s.dataRateTracker.Update(dataSize)
 	streamRate := s.dataRateTracker.GetRate()
 
-	level.Info(*s.logger).Log(fmt.Sprintf("Updated rate for stream %s: %fB/s (%fMB/s desired )", s.stream, streamRate, s.streamDesiredRate))
+	level.Info(*s.logger).Log("msg", fmt.Sprintf("Updated rate for stream %s: %fB/s (%fMB/s desired)", s.stream, streamRate, s.streamDesiredRate))
 
 	s.shards = int64((s.dataRateTracker.GetRate() / (1024 * 1024) / s.streamDesiredRate) + 0.5)
 
-	level.Info(*s.logger).Log(fmt.Sprintf("Updated shards for stream %s: %d", s.stream, s.shards))
+	level.Info(*s.logger).Log("msg", fmt.Sprintf("Updated shards for stream %s: %d", s.stream, s.shards))
 }
 
 func (s *StreamSharding) GetRandomShard() int64 {

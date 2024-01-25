@@ -212,19 +212,20 @@ func checkEventType(ev map[string]interface{}) (interface{}, error) {
 }
 
 func handler(ctx context.Context, ev map[string]interface{}) error {
-	if raygunApiKey != "" && raygunAppName != "" {
-		raygun, err := raygun4go.New(raygunAppName, raygunApiKey)
-		if err != nil {
-			panic(err)
-		}
-		defer raygun.HandleError()
-	}
-
 	lvl, ok := os.LookupEnv("LOG_LEVEL")
 	if !ok {
 		lvl = "info"
 	}
 	log := NewLogger(lvl)
+
+	if raygunApiKey != "" && raygunAppName != "" {
+		raygun, err := raygun4go.New(raygunAppName, raygunApiKey)
+		if err != nil {
+			level.Error(*log).Log("err", fmt.Errorf("failed to initialize raygun client: %s\n", err))
+		}
+		defer raygun.HandleError()
+	}
+
 	pClient := NewPromtailClient(&promtailClientConfig{
 		backoff: &backoff.Config{
 			MinBackoff: minBackoff,

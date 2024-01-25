@@ -55,5 +55,8 @@ func (sharding *StreamSharding) Update(dataSize int64) {
 }
 
 func (sharding *StreamSharding) GetRandomShard() int64 {
+	if sharding.shards == 0 {
+		return 1
+	}
 	return 1 + sharding.rand.Int63n(sharding.shards)
 }

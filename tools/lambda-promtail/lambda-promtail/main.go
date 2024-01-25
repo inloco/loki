@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/MindscapeHQ/raygun4go"
+	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/grafana/dskit/backoff"
 	"github.com/prometheus/common/model"
@@ -218,13 +219,7 @@ func handler(ctx context.Context, ev map[string]interface{}) error {
 	}
 	log := NewLogger(lvl)
 
-	if raygunApiKey != "" && raygunAppName != "" {
-		raygun, err := raygun4go.New(raygunAppName, raygunApiKey)
-		if err != nil {
-			level.Error(*log).Log("err", fmt.Errorf("failed to initialize raygun client: %s\n", err))
-		}
-		defer raygun.HandleError()
-	}
+	defer HandleError(log)
 
 	pClient := NewPromtailClient(&promtailClientConfig{
 		backoff: &backoff.Config{
@@ -265,6 +260,30 @@ func handler(ctx context.Context, ev map[string]interface{}) error {
 	case *events.S3TestEvent:
 		return nil
 	}
+	return err
+}
+
+func HandleError(logger *log.Logger) error {
+	e := recover()
+	if e == nil {
+		return nil
+	}
+
+	err, ok := e.(error)
+	if !ok {
+		err = errors.New(e.(string))
+	}
+
+	level.Error(*logger).Log("err", err)
+
+	if raygunApiKey != "" && raygunAppName != "" {
+		raygun, err := raygun4go.New(raygunAppName, raygunApiKey)
+		if err != nil {
+			level.Error(*logger).Log("err", fmt.Errorf("failed to initialize raygun client: %s\n", err))
+		}
+		raygun.CreateError(err.Error())
+	}
+
 	return err
 }
 

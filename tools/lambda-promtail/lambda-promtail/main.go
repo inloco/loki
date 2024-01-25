@@ -212,13 +212,11 @@ func checkEventType(ev map[string]interface{}) (interface{}, error) {
 }
 
 func handler(ctx context.Context, ev map[string]interface{}) error {
-	if raygunApiKey != "" {
+	if raygunApiKey != "" && raygunAppName != "" {
 		raygun, err := raygun4go.New(raygunAppName, raygunApiKey)
 		if err != nil {
-			level.Error(*NewLogger("error")).Log("Unable to create Raygun client", err)
 			panic(err)
 		}
-		raygun.LogToStdOut(true)
 		defer raygun.HandleError()
 	}
 

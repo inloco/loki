@@ -282,14 +282,14 @@ func HandleError(logger *log.Logger, raygunClient *raygun4go.Client) error {
 	level.Error(*logger).Log("err", runtime_err)
 
 	if raygunClient == nil {
-		return runtime_err
+		panic(runtime_err)
 	}
 
 	if err := raygunClient.SendError(runtime_err); err != nil {
 		level.Error(*logger).Log("failed to report error to Raygun: %v\n", err)
 	}
 
-	return runtime_err
+	panic(runtime_err)
 }
 
 func main() {

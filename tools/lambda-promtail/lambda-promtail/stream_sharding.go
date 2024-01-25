@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 	"time"
 
@@ -63,7 +64,7 @@ func (s *StreamSharding) Update(dataSize int64) {
 	s.dataRateTracker.Update(dataSize)
 
 	streamRate := s.dataRateTracker.GetRate()
-	s.shards = int64((streamRate / 1048576 / s.streamDesiredRate) + 0.5)
+	s.shards = int64(math.Ceil(streamRate / 1048576 / s.streamDesiredRate))
 
 	level.Debug(*s.logger).Log("msg", fmt.Sprintf("Updated rate (%dms window) for stream %s: %.0fB/s (%.2fMB/s desired)", s.dataRateTracker.windowSize.Milliseconds(), s.stream, streamRate, s.streamDesiredRate))
 	level.Debug(*s.logger).Log("msg", fmt.Sprintf("Updated shards for stream %s: %d", s.stream, s.shards))

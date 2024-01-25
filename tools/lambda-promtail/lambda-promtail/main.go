@@ -281,7 +281,9 @@ func HandleError(logger *log.Logger) error {
 		if err != nil {
 			level.Error(*logger).Log("err", fmt.Errorf("failed to initialize raygun client: %s\n", err))
 		}
-		raygun.CreateError(err.Error())
+		if err := raygun.SendError(err); err != nil {
+			level.Error(*logger).Log("failed to report error to Raygun: %v\n", err)
+		}
 	}
 
 	return err

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MindscapeHQ/raygun4go"
 	"github.com/go-kit/log/level"
 	"github.com/grafana/dskit/backoff"
 	"github.com/prometheus/common/model"
@@ -45,6 +46,8 @@ var (
 	skipTlsVerify                                             bool
 	printLogLine                                              bool
 	elbTagsAsLabels                                           map[string]string
+	raygunApiKey                                              string
+	raygunAppName                                             string
 )
 
 func setupArguments() {
@@ -109,12 +112,18 @@ func setupArguments() {
 	}
 
 	streamDesiredRateRaw := os.Getenv("STREAM_DESIRED_RATE")
+	if streamDesiredRateRaw == "" {
+		streamDesiredRateRaw = "1"
+	}
 	streamDesiredRate, err = strconv.ParseFloat(streamDesiredRateRaw, 64)
 	if err != nil {
 		panic(err)
 	}
 
 	streamRateTrackerWindowSizeRaw := os.Getenv("STREAM_RATE_TRACKER_WINDOW_SIZE")
+	if streamRateTrackerWindowSizeRaw == "" {
+		streamRateTrackerWindowSizeRaw = "100ms"
+	}
 	streamRateTrackerWindowSize, err = time.ParseDuration(streamRateTrackerWindowSizeRaw)
 	if err != nil {
 		panic(err)
@@ -127,6 +136,9 @@ func setupArguments() {
 	}
 	s3Clients = make(map[string]*s3.Client)
 	elbClients = make(map[string]*elasticloadbalancingv2.Client)
+
+	raygunApiKey = os.Getenv("RAYGUN_API_KEY")
+	raygunAppName = os.Getenv("RAYGUN_APP_NAME")
 }
 
 func parseExtraLabels(extraLabelsRaw string, omitPrefix bool) (model.LabelSet, error) {
@@ -248,6 +260,16 @@ func handler(ctx context.Context, ev map[string]interface{}) error {
 }
 
 func main() {
+	if raygunApiKey != "" {
+		raygun, err := raygun4go.New(raygunAppName, raygunApiKey)
+		if err != nil {
+			level.Error(*NewLogger("error")).Log("Unable to create Raygun client", err)
+			panic(err)
+		}
+		raygun.LogToStdOut(true)
+		defer raygun.HandleError()
+	}
+
 	setupArguments()
 	lambda.Start(handler)
 }

@@ -219,7 +219,12 @@ func handler(ctx context.Context, ev map[string]interface{}) error {
 	}
 	log := NewLogger(lvl)
 
-	defer HandleError(log)
+	raygunClient, err := raygun4go.New(raygunAppName, raygunApiKey)
+	if err != nil {
+		level.Error(*log).Log("err", fmt.Errorf("failed to create Raygun client: %v\n", err))
+	}
+
+	defer HandleError(log, raygunClient)
 
 	pClient := NewPromtailClient(&promtailClientConfig{
 		backoff: &backoff.Config{
@@ -263,30 +268,28 @@ func handler(ctx context.Context, ev map[string]interface{}) error {
 	return err
 }
 
-func HandleError(logger *log.Logger) error {
+func HandleError(logger *log.Logger, raygunClient *raygun4go.Client) error {
 	e := recover()
 	if e == nil {
 		return nil
 	}
 
-	err, ok := e.(error)
+	runtime_err, ok := e.(error)
 	if !ok {
-		err = errors.New(e.(string))
+		runtime_err = errors.New(e.(string))
 	}
 
-	level.Error(*logger).Log("err", err)
+	level.Error(*logger).Log("err", runtime_err)
 
-	if raygunApiKey != "" && raygunAppName != "" {
-		raygun, err := raygun4go.New(raygunAppName, raygunApiKey)
-		if err != nil {
-			level.Error(*logger).Log("err", fmt.Errorf("failed to initialize raygun client: %s\n", err))
-		}
-		if err := raygun.SendError(err); err != nil {
-			level.Error(*logger).Log("failed to report error to Raygun: %v\n", err)
-		}
+	if raygunClient == nil {
+		return runtime_err
 	}
 
-	return err
+	if err := raygunClient.SendError(runtime_err); err != nil {
+		level.Error(*logger).Log("failed to report error to Raygun: %v\n", err)
+	}
+
+	return runtime_err
 }
 
 func main() {

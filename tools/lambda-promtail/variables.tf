@@ -78,6 +78,12 @@ variable "batch_size" {
   default     = ""
 }
 
+variable "stream_desired_rate" {
+  type = string
+  description = "Determines the desired rate of log ingestion per stream (MB/s)."
+  default = "3"
+}
+
 variable "lambda_vpc_subnets" {
   type        = list(string)
   description = "List of subnet IDs associated with the Lambda function."
@@ -112,4 +118,10 @@ variable "elb_tags_as_labels" {
   type        = string
   description = "Comma separated list of ELB tags to add as labels to entries forwarded by lambda-promtail, in the format 'tag1[:label1],tag2[:label2],...,tagN[:labelN]'. (if labelN is ommited, tagN is used as the label name)"
   default     = ""
+}
+
+variable "stream_rate_tracker_window_size" {
+  type        = string
+  description = "Determines the window size for the stream rate tracker (possibly signed sequence of decimal numbers, each with optional fraction and a unit suffix. Valid time units are \"ns\", \"us\" (or \"µs\"), \"ms\", \"s\", \"m\", \"h\".)."
+  default     = "100ms"  
 }

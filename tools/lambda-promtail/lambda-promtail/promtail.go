@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/gogo/protobuf/proto"
 	"github.com/golang/snappy"
@@ -27,6 +28,8 @@ const (
 
 	reservedLabelTenantID = "__tenant_id__"
 
+	streamShardLabel = "__lambda_promtail_stream_shard__"
+
 	userAgent = "lambda-promtail"
 )
 
@@ -36,9 +39,13 @@ type entry struct {
 }
 
 type batch struct {
-	streams map[string]*logproto.Stream
-	size    int
-	client  Client
+	streams                     map[string]*logproto.Stream
+	streamsSharding             map[string]*StreamSharding
+	streamDesiredRate           float64
+	streamRateTrackerWindowSize time.Duration
+	size                        int
+	client                      Client
+	logger                      *log.Logger
 }
 
 type batchIf interface {
@@ -48,10 +55,21 @@ type batchIf interface {
 	flushBatch(ctx context.Context) error
 }
 
-func newBatch(ctx context.Context, pClient Client, entries ...entry) (*batch, error) {
+func newBatch(
+	ctx context.Context,
+	pClient Client,
+	streamDesiredRate float64,
+	streamRateTrackerWindowSize time.Duration,
+	logger *log.Logger,
+	entries ...entry,
+) (*batch, error) {
 	b := &batch{
-		streams: map[string]*logproto.Stream{},
-		client:  pClient,
+		streams:                     map[string]*logproto.Stream{},
+		streamsSharding:             map[string]*StreamSharding{},
+		streamDesiredRate:           streamDesiredRate,
+		streamRateTrackerWindowSize: streamRateTrackerWindowSize,
+		client:                      pClient,
+		logger:                      logger,
 	}
 
 	for _, entry := range entries {
@@ -65,6 +83,15 @@ func newBatch(ctx context.Context, pClient Client, entries ...entry) (*batch, er
 
 func (b *batch) add(ctx context.Context, e entry) error {
 	labels := labelsMapToString(e.labels, reservedLabelTenantID)
+	streamSharding, ok := b.streamsSharding[labels]
+	if !ok {
+		streamSharding = NewStreamSharding(labels, b.streamDesiredRate, b.streamRateTrackerWindowSize, b.logger)
+		b.streamsSharding[labels] = streamSharding
+	}
+	streamSharding.Update(int64(len(e.entry.Line)))
+	e.labels[streamShardLabel] = model.LabelValue(fmt.Sprintf("%d", streamSharding.GetRandomShard()))
+	labels = labelsMapToString(e.labels, reservedLabelTenantID)
+
 	stream, ok := b.streams[labels]
 	if !ok {
 		b.streams[labels] = &logproto.Stream{

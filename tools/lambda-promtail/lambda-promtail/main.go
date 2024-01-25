@@ -9,7 +9,10 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/MindscapeHQ/raygun4go"
+	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/grafana/dskit/backoff"
 	"github.com/prometheus/common/model"
@@ -36,12 +39,16 @@ var (
 	username, password, extraLabelsRaw, tenantID, bearerToken string
 	keepStream                                                bool
 	batchSize                                                 int
+	streamDesiredRate                                         float64
+	streamRateTrackerWindowSize                               time.Duration
 	s3Clients                                                 map[string]*s3.Client
 	elbClients                                                map[string]*elasticloadbalancingv2.Client
 	extraLabels                                               model.LabelSet
 	skipTlsVerify                                             bool
 	printLogLine                                              bool
 	elbTagsAsLabels                                           map[string]string
+	raygunApiKey                                              string
+	raygunAppName                                             string
 )
 
 func setupArguments() {
@@ -105,6 +112,24 @@ func setupArguments() {
 		batchSize, _ = strconv.Atoi(batch)
 	}
 
+	streamDesiredRateRaw := os.Getenv("STREAM_DESIRED_RATE")
+	if streamDesiredRateRaw == "" {
+		streamDesiredRateRaw = "1"
+	}
+	streamDesiredRate, err = strconv.ParseFloat(streamDesiredRateRaw, 64)
+	if err != nil {
+		panic(err)
+	}
+
+	streamRateTrackerWindowSizeRaw := os.Getenv("STREAM_RATE_TRACKER_WINDOW_SIZE")
+	if streamRateTrackerWindowSizeRaw == "" {
+		streamRateTrackerWindowSizeRaw = "100ms"
+	}
+	streamRateTrackerWindowSize, err = time.ParseDuration(streamRateTrackerWindowSizeRaw)
+	if err != nil {
+		panic(err)
+	}
+
 	print := os.Getenv("PRINT_LOG_LINE")
 	printLogLine = true
 	if strings.EqualFold(print, "false") {
@@ -112,6 +137,9 @@ func setupArguments() {
 	}
 	s3Clients = make(map[string]*s3.Client)
 	elbClients = make(map[string]*elasticloadbalancingv2.Client)
+
+	raygunApiKey = os.Getenv("RAYGUN_API_KEY")
+	raygunAppName = os.Getenv("RAYGUN_APP_NAME")
 }
 
 func parseExtraLabels(extraLabelsRaw string, omitPrefix bool) (model.LabelSet, error) {
@@ -190,6 +218,14 @@ func handler(ctx context.Context, ev map[string]interface{}) error {
 		lvl = "info"
 	}
 	log := NewLogger(lvl)
+
+	raygunClient, err := raygun4go.New(raygunAppName, raygunApiKey)
+	if err != nil {
+		level.Error(*log).Log("err", fmt.Errorf("failed to create Raygun client: %v\n", err))
+	}
+
+	defer HandleError(log, raygunClient)
+
 	pClient := NewPromtailClient(&promtailClientConfig{
 		backoff: &backoff.Config{
 			MinBackoff: minBackoff,
@@ -210,15 +246,15 @@ func handler(ctx context.Context, ev map[string]interface{}) error {
 
 	switch evt := event.(type) {
 	case *events.S3Event:
-		err := processS3Event(ctx, evt, pClient, pClient.log)
+		err := processS3Event(ctx, evt, pClient, log, streamDesiredRate, streamRateTrackerWindowSize)
 		level.Error(*pClient.log).Log("err", err)
 		return err
 	case *events.CloudwatchLogsEvent:
-		err := processCWEvent(ctx, evt, pClient)
+		err := processCWEvent(ctx, evt, pClient, log, streamDesiredRate, streamRateTrackerWindowSize)
 		level.Error(*pClient.log).Log("err", err)
 		return err
 	case *events.KinesisEvent:
-		err := processKinesisEvent(ctx, evt, pClient)
+		err := processKinesisEvent(ctx, evt, pClient, log, streamDesiredRate, streamRateTrackerWindowSize)
 		level.Error(*pClient.log).Log("err", err)
 		return err
 	case *events.SQSEvent:
@@ -230,6 +266,30 @@ func handler(ctx context.Context, ev map[string]interface{}) error {
 		return nil
 	}
 	return err
+}
+
+func HandleError(logger *log.Logger, raygunClient *raygun4go.Client) error {
+	e := recover()
+	if e == nil {
+		return nil
+	}
+
+	runtime_err, ok := e.(error)
+	if !ok {
+		runtime_err = errors.New(e.(string))
+	}
+
+	level.Error(*logger).Log("err", runtime_err)
+
+	if raygunClient == nil {
+		panic(runtime_err)
+	}
+
+	if err := raygunClient.SendError(runtime_err); err != nil {
+		level.Error(*logger).Log("failed to report error to Raygun: %v\n", err)
+	}
+
+	panic(runtime_err)
 }
 
 func main() {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-lambda-go/events"
+	"github.com/go-kit/log"
 	"github.com/grafana/loki/pkg/logproto"
 	"github.com/prometheus/common/model"
 )
@@ -41,8 +42,8 @@ func parseCWEvent(ctx context.Context, b *batch, ev *events.CloudwatchLogsEvent)
 	return nil
 }
 
-func processCWEvent(ctx context.Context, ev *events.CloudwatchLogsEvent, pClient Client, streamDesiredRate float64, streamRateTrackerWindowSize time.Duration) error {
-	batch, err := newBatch(ctx, pClient, streamDesiredRate, streamRateTrackerWindowSize)
+func processCWEvent(ctx context.Context, ev *events.CloudwatchLogsEvent, pClient Client, log *log.Logger, streamDesiredRate float64, streamRateTrackerWindowSize time.Duration) error {
+	batch, err := newBatch(ctx, pClient, streamDesiredRate, streamRateTrackerWindowSize, log)
 	if err != nil {
 		return err
 	}

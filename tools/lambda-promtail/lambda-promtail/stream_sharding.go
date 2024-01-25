@@ -1,8 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"math/rand"
 	"time"
+
+	"github.com/go-kit/log"
+	"github.com/go-kit/log/level"
 )
 
 type DataRateTracker struct {
@@ -36,26 +40,36 @@ func (tracker *DataRateTracker) GetRate() float64 {
 }
 
 type StreamSharding struct {
+	stream            string
 	dataRateTracker   *DataRateTracker
 	streamDesiredRate float64
 	shards            int64
 	rand              *rand.Rand
+	logger            *log.Logger
 }
 
-func NewStreamSharding(streamDesiredRate float64, streamRateTrackerWindowSize time.Duration) *StreamSharding {
+func NewStreamSharding(stream string, streamDesiredRate float64, streamRateTrackerWindowSize time.Duration, logger *log.Logger) *StreamSharding {
 	return &StreamSharding{
+		stream:            stream,
 		dataRateTracker:   NewDataRateTracker(streamRateTrackerWindowSize),
 		streamDesiredRate: streamDesiredRate,
 		rand:              rand.New(rand.NewSource(time.Now().UnixNano())),
 		shards:            1,
+		logger:            logger,
 	}
 }
 
-func (sharding *StreamSharding) Update(dataSize int64) {
-	sharding.dataRateTracker.Update(dataSize)
-	sharding.shards = int64((sharding.dataRateTracker.GetRate() / (1024 * 1024) / sharding.streamDesiredRate) + 0.5)
+func (s *StreamSharding) Update(dataSize int64) {
+	s.dataRateTracker.Update(dataSize)
+	streamRate := s.dataRateTracker.GetRate()
+
+	level.Info(*s.logger).Log(fmt.Sprintf("Updated rate for stream %s: %fB/s (%fMB/s desired )", s.stream, streamRate, s.streamDesiredRate))
+
+	s.shards = int64((s.dataRateTracker.GetRate() / (1024 * 1024) / s.streamDesiredRate) + 0.5)
+
+	level.Info(*s.logger).Log(fmt.Sprintf("Updated shards for stream %s: %d", s.stream, s.shards))
 }
 
-func (sharding *StreamSharding) GetRandomShard() int64 {
-	return 1 + sharding.rand.Int63n(sharding.shards)
+func (s *StreamSharding) GetRandomShard() int64 {
+	return 1 + s.rand.Int63n(s.shards)
 }

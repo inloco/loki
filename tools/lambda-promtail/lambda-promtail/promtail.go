@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/gogo/protobuf/proto"
 	"github.com/golang/snappy"
@@ -44,6 +45,7 @@ type batch struct {
 	streamRateTrackerWindowSize time.Duration
 	size                        int
 	client                      Client
+	logger                      *log.Logger
 }
 
 type batchIf interface {
@@ -53,11 +55,19 @@ type batchIf interface {
 	flushBatch(ctx context.Context) error
 }
 
-func newBatch(ctx context.Context, pClient Client, streamDesiredRate float64, streamRateTrackerWindowSize time.Duration, entries ...entry) (*batch, error) {
+func newBatch(
+	ctx context.Context,
+	pClient Client,
+	streamDesiredRate float64,
+	streamRateTrackerWindowSize time.Duration,
+	logger *log.Logger,
+	entries ...entry,
+) (*batch, error) {
 	b := &batch{
 		streams:         map[string]*logproto.Stream{},
 		streamsSharding: map[string]*StreamSharding{},
 		client:          pClient,
+		logger:          logger,
 	}
 
 	for _, entry := range entries {
@@ -73,7 +83,7 @@ func (b *batch) add(ctx context.Context, e entry) error {
 	labels := labelsMapToString(e.labels, reservedLabelTenantID)
 	streamSharding, ok := b.streamsSharding[labels]
 	if !ok {
-		streamSharding = NewStreamSharding(b.streamDesiredRate, b.streamRateTrackerWindowSize)
+		streamSharding = NewStreamSharding(labels, b.streamDesiredRate, b.streamRateTrackerWindowSize, b.logger)
 		b.streamsSharding[labels] = streamSharding
 	}
 	streamSharding.Update(int64(len(e.entry.Line)))

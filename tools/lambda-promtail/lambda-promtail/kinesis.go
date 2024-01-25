@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-lambda-go/events"
+	"github.com/go-kit/log"
 	"github.com/grafana/loki/pkg/logproto"
 	"github.com/prometheus/common/model"
 )
@@ -33,8 +34,8 @@ func parseKinesisEvent(ctx context.Context, b batchIf, ev *events.KinesisEvent) 
 	return nil
 }
 
-func processKinesisEvent(ctx context.Context, ev *events.KinesisEvent, pClient Client, streamDesiredRate float64, streamRateTrackerWindowSize time.Duration) error {
-	batch, _ := newBatch(ctx, pClient, streamDesiredRate, streamRateTrackerWindowSize)
+func processKinesisEvent(ctx context.Context, ev *events.KinesisEvent, pClient Client, log *log.Logger, streamDesiredRate float64, streamRateTrackerWindowSize time.Duration) error {
+	batch, _ := newBatch(ctx, pClient, streamDesiredRate, streamRateTrackerWindowSize, log)
 
 	err := parseKinesisEvent(ctx, batch, ev)
 	if err != nil {

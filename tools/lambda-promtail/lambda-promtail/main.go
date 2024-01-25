@@ -246,15 +246,15 @@ func handler(ctx context.Context, ev map[string]interface{}) error {
 
 	switch evt := event.(type) {
 	case *events.S3Event:
-		err := processS3Event(ctx, evt, pClient, pClient.log, streamDesiredRate, streamRateTrackerWindowSize)
+		err := processS3Event(ctx, evt, pClient, log, streamDesiredRate, streamRateTrackerWindowSize)
 		level.Error(*pClient.log).Log("err", err)
 		return err
 	case *events.CloudwatchLogsEvent:
-		err := processCWEvent(ctx, evt, pClient, streamDesiredRate, streamRateTrackerWindowSize)
+		err := processCWEvent(ctx, evt, pClient, log, streamDesiredRate, streamRateTrackerWindowSize)
 		level.Error(*pClient.log).Log("err", err)
 		return err
 	case *events.KinesisEvent:
-		err := processKinesisEvent(ctx, evt, pClient, streamDesiredRate, streamRateTrackerWindowSize)
+		err := processKinesisEvent(ctx, evt, pClient, log, streamDesiredRate, streamRateTrackerWindowSize)
 		level.Error(*pClient.log).Log("err", err)
 		return err
 	case *events.SQSEvent:

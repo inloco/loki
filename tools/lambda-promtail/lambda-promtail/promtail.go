@@ -64,10 +64,12 @@ func newBatch(
 	entries ...entry,
 ) (*batch, error) {
 	b := &batch{
-		streams:         map[string]*logproto.Stream{},
-		streamsSharding: map[string]*StreamSharding{},
-		client:          pClient,
-		logger:          logger,
+		streams:                     map[string]*logproto.Stream{},
+		streamsSharding:             map[string]*StreamSharding{},
+		streamDesiredRate:           streamDesiredRate,
+		streamRateTrackerWindowSize: streamRateTrackerWindowSize,
+		client:                      pClient,
+		logger:                      logger,
 	}
 
 	for _, entry := range entries {

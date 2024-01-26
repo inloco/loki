@@ -22,6 +22,7 @@ require (
 	github.com/HdrHistogram/hdrhistogram-go v1.1.2 // indirect
 	github.com/alecthomas/units v0.0.0-20211218093645-b94a6e3cc137 // indirect
 	github.com/armon/go-metrics v0.4.0 // indirect
+	github.com/aws/aws-sdk-go v1.47.10 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.0.0 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.11.0 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.12.1 // indirect
@@ -33,6 +34,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.9.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.11.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.16.1 // indirect
+	github.com/aws/aws-secretsmanager-caching-go v1.1.3 // indirect
 	github.com/aws/smithy-go v1.13.5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
@@ -104,14 +106,14 @@ require (
 	go.uber.org/goleak v1.2.0 // indirect
 	go.uber.org/multierr v1.8.0 // indirect
 	go.uber.org/zap v1.21.0 // indirect
-	golang.org/x/crypto v0.5.0 // indirect
+	golang.org/x/crypto v0.15.0 // indirect
 	golang.org/x/exp v0.0.0-20221212164502-fae10dda9338 // indirect
 	golang.org/x/mod v0.9.0 // indirect
-	golang.org/x/net v0.8.0 // indirect
+	golang.org/x/net v0.18.0 // indirect
 	golang.org/x/oauth2 v0.4.0 // indirect
 	golang.org/x/sync v0.1.0 // indirect
-	golang.org/x/sys v0.6.0 // indirect
-	golang.org/x/text v0.8.0 // indirect
+	golang.org/x/sys v0.14.0 // indirect
+	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
 	golang.org/x/tools v0.7.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect

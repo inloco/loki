@@ -21,6 +21,7 @@ import (
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-secretsmanager-caching-go/secretcache"
 )
 
 const (
@@ -47,11 +48,35 @@ var (
 	skipTlsVerify                                             bool
 	printLogLine                                              bool
 	elbTagsAsLabels                                           map[string]string
-	raygunApiKey                                              string
 	raygunAppName                                             string
+	raygunApiKey                                              string
+	secretId                                                  string
+	secrets                                                   map[string]string
 )
 
+func getSecrets() error {
+	secretId = os.Getenv("SECRET_ID")
+	if secretId == "" {
+		return nil
+	}
+
+	secretCache, _ := secretcache.New()
+	secretsString, err := secretCache.GetSecretString(secretId)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal([]byte(secretsString), &secrets); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func setupArguments() {
+	if err := getSecrets(); err != nil {
+		panic(err)
+	}
+
 	addr := os.Getenv("WRITE_ADDRESS")
 	if addr == "" {
 		panic(errors.New("required environmental variable WRITE_ADDRESS not present, format: https://<hostname>/loki/api/v1/push"))
@@ -138,8 +163,8 @@ func setupArguments() {
 	s3Clients = make(map[string]*s3.Client)
 	elbClients = make(map[string]*elasticloadbalancingv2.Client)
 
-	raygunApiKey = os.Getenv("RAYGUN_API_KEY")
 	raygunAppName = os.Getenv("RAYGUN_APP_NAME")
+	raygunApiKey = secrets["RAYGUN_API_KEY"]
 }
 
 func parseExtraLabels(extraLabelsRaw string, omitPrefix bool) (model.LabelSet, error) {

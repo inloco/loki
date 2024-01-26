@@ -40,7 +40,7 @@ type entry struct {
 
 type batch struct {
 	streams                     map[string]*logproto.Stream
-	streamsSharding             map[string]*StreamSharding
+	streamSharding              *StreamSharding
 	streamDesiredRate           float64
 	streamRateTrackerWindowSize time.Duration
 	size                        int
@@ -65,7 +65,7 @@ func newBatch(
 ) (*batch, error) {
 	b := &batch{
 		streams:                     map[string]*logproto.Stream{},
-		streamsSharding:             map[string]*StreamSharding{},
+		streamSharding:              NewStreamSharding(streamDesiredRate, streamRateTrackerWindowSize, logger),
 		streamDesiredRate:           streamDesiredRate,
 		streamRateTrackerWindowSize: streamRateTrackerWindowSize,
 		client:                      pClient,
@@ -82,15 +82,8 @@ func newBatch(
 }
 
 func (b *batch) add(ctx context.Context, e entry) error {
+	e.labels[streamShardLabel] = model.LabelValue(fmt.Sprintf("%d", b.streamSharding.GetRandomShard()))
 	labels := labelsMapToString(e.labels, reservedLabelTenantID)
-	streamSharding, ok := b.streamsSharding[labels]
-	if !ok {
-		streamSharding = NewStreamSharding(labels, b.streamDesiredRate, b.streamRateTrackerWindowSize, b.logger)
-		b.streamsSharding[labels] = streamSharding
-	}
-	streamSharding.Update(int64(len(e.entry.Line)))
-	e.labels[streamShardLabel] = model.LabelValue(fmt.Sprintf("%d", streamSharding.GetRandomShard()))
-	labels = labelsMapToString(e.labels, reservedLabelTenantID)
 
 	stream, ok := b.streams[labels]
 	if !ok {
@@ -161,6 +154,10 @@ func (b *batch) flushBatch(ctx context.Context) error {
 	return nil
 }
 
+func (b *batch) UpdateStreamSharding() {
+	b.streamSharding.Update(int64(b.size))
+}
+
 func (b *batch) resetBatch() {
 	b.streams = make(map[string]*logproto.Stream)
 	b.size = 0
@@ -177,6 +174,8 @@ func (c *promtailClient) sendToPromtail(ctx context.Context, b *batch) error {
 	for {
 		// send uses `timeout` internally, so `context.Background` is good enough.
 		status, err = c.send(context.Background(), buf)
+
+		b.UpdateStreamSharding()
 
 		// Only retry 429s, 500s and connection-level errors.
 		if status > 0 && status != 429 && status/100 != 5 {

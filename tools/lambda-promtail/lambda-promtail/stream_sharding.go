@@ -41,7 +41,6 @@ func (tracker *DataRateTracker) GetRate() float64 {
 }
 
 type StreamSharding struct {
-	stream            string
 	dataRateTracker   *DataRateTracker
 	streamDesiredRate float64
 	shards            int64
@@ -49,9 +48,8 @@ type StreamSharding struct {
 	logger            *log.Logger
 }
 
-func NewStreamSharding(stream string, streamDesiredRate float64, streamRateTrackerWindowSize time.Duration, logger *log.Logger) *StreamSharding {
+func NewStreamSharding(streamDesiredRate float64, streamRateTrackerWindowSize time.Duration, logger *log.Logger) *StreamSharding {
 	return &StreamSharding{
-		stream:            stream,
 		dataRateTracker:   NewDataRateTracker(streamRateTrackerWindowSize),
 		streamDesiredRate: streamDesiredRate,
 		rand:              rand.New(rand.NewSource(time.Now().UnixNano())),
@@ -63,11 +61,11 @@ func NewStreamSharding(stream string, streamDesiredRate float64, streamRateTrack
 func (s *StreamSharding) Update(dataSize int64) {
 	s.dataRateTracker.Update(dataSize)
 
-	streamRate := s.dataRateTracker.GetRate()
-	s.shards = int64(math.Ceil(streamRate / 1048576 / s.streamDesiredRate))
+	rate := s.dataRateTracker.GetRate()
+	s.shards = int64(math.Ceil(rate / 1048576 / s.streamDesiredRate))
 
-	level.Debug(*s.logger).Log("msg", fmt.Sprintf("Updated rate (%dms window) for stream %s: %.0fB/s (%.2fMB/s desired)", s.dataRateTracker.windowSize.Milliseconds(), s.stream, streamRate, s.streamDesiredRate))
-	level.Debug(*s.logger).Log("msg", fmt.Sprintf("Updated shards for stream %s: %d", s.stream, s.shards))
+	level.Debug(*s.logger).Log("msg", fmt.Sprintf("Updated transmission rate (%dms window): %.0fB/s (%.2fMB/s desired)", s.dataRateTracker.windowSize.Milliseconds(), rate, s.streamDesiredRate))
+	level.Debug(*s.logger).Log("msg", fmt.Sprintf("Updated stream shards: %d", s.shards))
 }
 
 func (s *StreamSharding) GetRandomShard() int64 {

@@ -5,10 +5,12 @@ import (
 	"strings"
 	"testing"
 
-	configv1 "github.com/grafana/loki/operator/apis/config/v1"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
+
+	configv1 "github.com/grafana/loki/operator/apis/config/v1"
 )
 
 func TestBuildAll(t *testing.T) {
@@ -71,7 +73,7 @@ func TestApplyDefaultSettings_EmptySecrets(t *testing.T) {
 			fmt.Sprintf("%s.%s.svc.cluster.local", name, opts.StackNamespace),
 		}
 
-		require.ElementsMatch(t, hostnames, cert.Rotation.Hostnames)
+		require.ElementsMatch(t, hostnames, sets.List[string](cert.Rotation.Hostnames))
 		require.Equal(t, defaultUserInfo, cert.Rotation.UserInfo)
 		require.Nil(t, cert.Secret)
 	}
@@ -126,7 +128,7 @@ func TestApplyDefaultSettings_ExistingSecrets(t *testing.T) {
 			fmt.Sprintf("%s.%s.svc.cluster.local", name, opts.StackNamespace),
 		}
 
-		require.ElementsMatch(t, hostnames, cert.Rotation.Hostnames)
+		require.ElementsMatch(t, hostnames, sets.List[string](cert.Rotation.Hostnames))
 		require.Equal(t, defaultUserInfo, cert.Rotation.UserInfo)
 
 		require.NotNil(t, cert.Secret)

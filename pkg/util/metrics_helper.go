@@ -13,7 +13,7 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 	tsdb_errors "github.com/prometheus/prometheus/tsdb/errors"
 
-	util_log "github.com/grafana/loki/pkg/util/log"
+	util_log "github.com/grafana/loki/v3/pkg/util/log"
 )
 
 var (
@@ -729,7 +729,7 @@ func FromLabelPairsToLabels(pairs []*dto.LabelPair) labels.Labels {
 	for _, pair := range pairs {
 		builder.Set(pair.GetName(), pair.GetValue())
 	}
-	return builder.Labels(nil)
+	return builder.Labels()
 }
 
 // GetSumOfHistogramSampleCount returns the sum of samples count of histograms matching the provided metric name
@@ -759,7 +759,7 @@ func GetSumOfHistogramSampleCount(families []*dto.MetricFamily, metricName strin
 	return sum
 }
 
-// GetLables returns list of label combinations used by this collector at the time of call.
+// GetLabels returns list of label combinations used by this collector at the time of call.
 // This can be used to find and delete unused metrics.
 func GetLabels(c prometheus.Collector, filter map[string]string) ([]labels.Labels, error) {
 	ch := make(chan prometheus.Metric, 16)
@@ -795,7 +795,7 @@ nextMetric:
 
 			lbls.Set(lp.GetName(), lp.GetValue())
 		}
-		result = append(result, lbls.Labels(nil))
+		result = append(result, lbls.Labels())
 	}
 
 	return result, errs.Err()

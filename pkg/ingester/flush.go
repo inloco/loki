@@ -7,20 +7,22 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
+	"github.com/grafana/dskit/backoff"
+	"github.com/grafana/dskit/ring"
+	"github.com/grafana/dskit/user"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/labels"
-	"github.com/weaveworks/common/user"
 	"golang.org/x/net/context"
 
 	"github.com/grafana/dskit/tenant"
 
-	"github.com/grafana/loki/pkg/chunkenc"
-	"github.com/grafana/loki/pkg/storage/chunk"
-	"github.com/grafana/loki/pkg/util"
-	loki_util "github.com/grafana/loki/pkg/util"
-	util_log "github.com/grafana/loki/pkg/util/log"
+	"github.com/grafana/loki/v3/pkg/chunkenc"
+	"github.com/grafana/loki/v3/pkg/storage/chunk"
+	"github.com/grafana/loki/v3/pkg/util"
+	util_log "github.com/grafana/loki/v3/pkg/util/log"
 )
 
 const (
@@ -43,15 +45,23 @@ const (
 func (i *Ingester) InitFlushQueues() {
 	i.flushQueuesDone.Add(i.cfg.ConcurrentFlushes)
 	for j := 0; j < i.cfg.ConcurrentFlushes; j++ {
-		i.flushQueues[j] = util.NewPriorityQueue(flushQueueLength)
+		i.flushQueues[j] = util.NewPriorityQueue(i.metrics.flushQueueLength)
 		go i.flushLoop(j)
 	}
 }
 
+// Flush implements ring.FlushTransferer
 // Flush triggers a flush of all the chunks and closes the flush queues.
 // Called from the Lifecycler as part of the ingester shutdown.
 func (i *Ingester) Flush() {
 	i.flush(true)
+}
+
+// TransferOut implements ring.FlushTransferer
+// Noop implemenetation because ingesters have a WAL now that does not require transferring chunks any more.
+// We return ErrTransferDisabled to indicate that we don't support transfers, and therefore we may flush on shutdown if configured to do so.
+func (i *Ingester) TransferOut(_ context.Context) error {
+	return ring.ErrTransferDisabled
 }
 
 func (i *Ingester) flush(mayRemoveStreams bool) {
@@ -63,7 +73,7 @@ func (i *Ingester) flush(mayRemoveStreams bool) {
 	}
 
 	i.flushQueuesDone.Wait()
-	level.Debug(util_log.Logger).Log("msg", "flush queues have drained")
+	level.Debug(i.logger).Log("msg", "flush queues have drained")
 }
 
 // FlushHandler triggers a flush of all in memory chunks.  Mainly used for
@@ -127,8 +137,9 @@ func (i *Ingester) sweepStream(instance *instance, stream *stream, immediate boo
 }
 
 func (i *Ingester) flushLoop(j int) {
+	l := log.With(i.logger, "loop", j)
 	defer func() {
-		level.Debug(util_log.Logger).Log("msg", "Ingester.flushLoop() exited")
+		level.Debug(l).Log("msg", "Ingester.flushLoop() exited")
 		i.flushQueuesDone.Done()
 	}()
 
@@ -139,9 +150,10 @@ func (i *Ingester) flushLoop(j int) {
 		}
 		op := o.(*flushOp)
 
-		err := i.flushUserSeries(op.userID, op.fp, op.immediate)
+		m := util_log.WithUserID(op.userID, l)
+		err := i.flushOp(m, op)
 		if err != nil {
-			level.Error(util_log.WithUserID(op.userID, util_log.Logger)).Log("msg", "failed to flush", "err", err)
+			level.Error(m).Log("msg", "failed to flush", "err", err)
 		}
 
 		// If we're exiting & we failed to flush, put the failed operation
@@ -153,7 +165,23 @@ func (i *Ingester) flushLoop(j int) {
 	}
 }
 
-func (i *Ingester) flushUserSeries(userID string, fp model.Fingerprint, immediate bool) error {
+func (i *Ingester) flushOp(l log.Logger, op *flushOp) error {
+	ctx, cancelFunc := context.WithCancel(context.Background())
+	defer cancelFunc()
+
+	b := backoff.New(ctx, i.cfg.FlushOpBackoff)
+	for b.Ongoing() {
+		err := i.flushUserSeries(ctx, op.userID, op.fp, op.immediate)
+		if err == nil {
+			break
+		}
+		level.Error(l).Log("msg", "failed to flush", "retries", b.NumRetries(), "err", err)
+		b.Wait()
+	}
+	return b.Err()
+}
+
+func (i *Ingester) flushUserSeries(ctx context.Context, userID string, fp model.Fingerprint, immediate bool) error {
 	instance, ok := i.getInstanceByID(userID)
 	if !ok {
 		return nil
@@ -165,11 +193,11 @@ func (i *Ingester) flushUserSeries(userID string, fp model.Fingerprint, immediat
 	}
 
 	lbs := labels.String()
-	level.Info(util_log.Logger).Log("msg", "flushing stream", "user", userID, "fp", fp, "immediate", immediate, "num_chunks", len(chunks), "labels", lbs)
+	level.Info(i.logger).Log("msg", "flushing stream", "user", userID, "fp", fp, "immediate", immediate, "num_chunks", len(chunks), "labels", lbs)
 
-	ctx := user.InjectOrgID(context.Background(), userID)
-	ctx, cancel := context.WithTimeout(ctx, i.cfg.FlushOpTimeout)
-	defer cancel()
+	ctx = user.InjectOrgID(ctx, userID)
+	ctx, cancelFunc := context.WithTimeout(ctx, i.cfg.FlushOpTimeout)
+	defer cancelFunc()
 	err := i.flushChunks(ctx, fp, labels, chunks, chunkMtx)
 	if err != nil {
 		return fmt.Errorf("failed to flush chunks: %w, num_chunks: %d, labels: %s", err, len(chunks), lbs)
@@ -282,7 +310,7 @@ func (i *Ingester) flushChunks(ctx context.Context, fp model.Fingerprint, labelP
 	// It's required by historical index stores so we keep it for now.
 	labelsBuilder := labels.NewBuilder(labelPairs)
 	labelsBuilder.Set(nameLabel, logsValue)
-	metric := labelsBuilder.Labels(nil)
+	metric := labelsBuilder.Labels()
 
 	sizePerTenant := i.metrics.chunkSizePerTenant.WithLabelValues(userID)
 	countPerTenant := i.metrics.chunksPerTenant.WithLabelValues(userID)
@@ -292,7 +320,7 @@ func (i *Ingester) flushChunks(ctx context.Context, fp model.Fingerprint, labelP
 			return fmt.Errorf("chunk close for flushing: %w", err)
 		}
 
-		firstTime, lastTime := loki_util.RoundToMilliseconds(c.chunk.Bounds())
+		firstTime, lastTime := util.RoundToMilliseconds(c.chunk.Bounds())
 		ch := chunk.NewChunk(
 			userID, fp, metric,
 			chunkenc.NewFacade(c.chunk, i.cfg.BlockSize, i.cfg.TargetChunkSize),
@@ -364,6 +392,7 @@ func (i *Ingester) encodeChunk(ctx context.Context, ch *chunk.Chunk, desc *chunk
 // chunk to have another opportunity to be flushed.
 func (i *Ingester) flushChunk(ctx context.Context, ch *chunk.Chunk) error {
 	if err := i.store.Put(ctx, []chunk.Chunk{*ch}); err != nil {
+		i.metrics.chunksFlushFailures.Inc()
 		return fmt.Errorf("store put chunk: %w", err)
 	}
 	i.metrics.flushedChunksStats.Inc(1)
@@ -374,7 +403,7 @@ func (i *Ingester) flushChunk(ctx context.Context, ch *chunk.Chunk) error {
 func (i *Ingester) reportFlushedChunkStatistics(ch *chunk.Chunk, desc *chunkDesc, sizePerTenant prometheus.Counter, countPerTenant prometheus.Counter, reason string) {
 	byt, err := ch.Encoded()
 	if err != nil {
-		level.Error(util_log.Logger).Log("msg", "failed to encode flushed wire chunk", "err", err)
+		level.Error(i.logger).Log("msg", "failed to encode flushed wire chunk", "err", err)
 		return
 	}
 

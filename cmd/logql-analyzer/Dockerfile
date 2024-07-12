@@ -1,10 +1,10 @@
-FROM golang:1.20.1 as build
+FROM golang:1.22.2 as build
 
 COPY . /src/loki
 WORKDIR /src/loki
 RUN make clean && CGO_ENABLED=0 go build ./cmd/logql-analyzer/
 
-FROM alpine:3.16.4
+FROM alpine:3.18.5
 
 RUN apk add --no-cache ca-certificates
 

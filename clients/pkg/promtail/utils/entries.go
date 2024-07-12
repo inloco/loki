@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/grafana/loki/clients/pkg/promtail/api"
+	"github.com/grafana/loki/v3/clients/pkg/promtail/api"
 )
 
 // FanoutEntryHandler implements api.EntryHandler, fanning out received entries to one or multiple channels.
@@ -65,7 +65,7 @@ func (eh *FanoutEntryHandler) Chan() chan<- api.Entry {
 	return eh.entries
 }
 
-// Stop only stops the channel FanoutEntryHandler exposes. It then waits for the entry being processed to be sent succesfully.
+// Stop only stops the channel FanoutEntryHandler exposes. It then waits for the entry being processed to be sent successfully.
 // If it times out, it hard stops all sending routines.
 func (eh *FanoutEntryHandler) Stop() {
 	eh.once.Do(func() {

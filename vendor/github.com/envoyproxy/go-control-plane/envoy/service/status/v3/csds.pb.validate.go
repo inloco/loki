@@ -124,6 +124,8 @@ func (m *ClientStatusRequest) validate(all bool) error {
 		}
 	}
 
+	// no validation rules for ExcludeResourceContents
+
 	if len(errors) > 0 {
 		return ClientStatusRequestMultiError(errors)
 	}
@@ -230,9 +232,18 @@ func (m *PerXdsConfig) validate(all bool) error {
 
 	// no validation rules for ClientStatus
 
-	switch m.PerXdsConfig.(type) {
-
+	switch v := m.PerXdsConfig.(type) {
 	case *PerXdsConfig_ListenerConfig:
+		if v == nil {
+			err := PerXdsConfigValidationError{
+				field:  "PerXdsConfig",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
 
 		if all {
 			switch v := interface{}(m.GetListenerConfig()).(type) {
@@ -264,6 +275,16 @@ func (m *PerXdsConfig) validate(all bool) error {
 		}
 
 	case *PerXdsConfig_ClusterConfig:
+		if v == nil {
+			err := PerXdsConfigValidationError{
+				field:  "PerXdsConfig",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
 
 		if all {
 			switch v := interface{}(m.GetClusterConfig()).(type) {
@@ -295,6 +316,16 @@ func (m *PerXdsConfig) validate(all bool) error {
 		}
 
 	case *PerXdsConfig_RouteConfig:
+		if v == nil {
+			err := PerXdsConfigValidationError{
+				field:  "PerXdsConfig",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
 
 		if all {
 			switch v := interface{}(m.GetRouteConfig()).(type) {
@@ -326,6 +357,16 @@ func (m *PerXdsConfig) validate(all bool) error {
 		}
 
 	case *PerXdsConfig_ScopedRouteConfig:
+		if v == nil {
+			err := PerXdsConfigValidationError{
+				field:  "PerXdsConfig",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
 
 		if all {
 			switch v := interface{}(m.GetScopedRouteConfig()).(type) {
@@ -357,6 +398,16 @@ func (m *PerXdsConfig) validate(all bool) error {
 		}
 
 	case *PerXdsConfig_EndpointConfig:
+		if v == nil {
+			err := PerXdsConfigValidationError{
+				field:  "PerXdsConfig",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
 
 		if all {
 			switch v := interface{}(m.GetEndpointConfig()).(type) {
@@ -387,6 +438,8 @@ func (m *PerXdsConfig) validate(all bool) error {
 			}
 		}
 
+	default:
+		_ = v // ensures v is used
 	}
 
 	if len(errors) > 0 {

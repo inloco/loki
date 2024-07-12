@@ -1,6 +1,8 @@
 package v1
 
 import (
+	"strings"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -25,10 +27,18 @@ const (
 
 // LokiStackSizeType declares the type for loki cluster scale outs.
 //
-// +kubebuilder:validation:Enum="1x.extra-small";"1x.small";"1x.medium"
+// +kubebuilder:validation:Enum="1x.demo";"1x.extra-small";"1x.small";"1x.medium"
 type LokiStackSizeType string
 
 const (
+	// SizeOneXDemo defines the size of a single Loki deployment
+	// with tiny resource requirements and without HA support.
+	// This size is intended to run in single-node clusters on laptops,
+	// it is only useful for very light testing, demonstrations, or prototypes.
+	// There are no ingestion/query performance guarantees.
+	// DO NOT USE THIS IN PRODUCTION!
+	SizeOneXDemo LokiStackSizeType = "1x.demo"
+
 	// SizeOneXExtraSmall defines the size of a single Loki deployment
 	// with extra small resources/limits requirements and without HA support.
 	// This size is ultimately dedicated for development and demo purposes.
@@ -145,12 +155,17 @@ type TenantSecretSpec struct {
 
 // OIDCSpec defines the oidc configuration spec for lokiStack Gateway component.
 type OIDCSpec struct {
-	// Secret defines the spec for the clientID, clientSecret and issuerCAPath for tenant's authentication.
+	// Secret defines the spec for the clientID and clientSecret for tenant's authentication.
 	//
 	// +required
 	// +kubebuilder:validation:Required
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Tenant Secret"
 	Secret *TenantSecretSpec `json:"secret"`
+	// IssuerCA defines the spec for the issuer CA for tenant's authentication.
+	//
+	// +optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="IssuerCA ConfigMap"
+	IssuerCA *CASpec `json:"issuerCA"`
 	// IssuerURL defines the URL for issuer.
 	//
 	// +required
@@ -175,6 +190,16 @@ type OIDCSpec struct {
 	UsernameClaim string `json:"usernameClaim,omitempty"`
 }
 
+// MTLSSpec specifies mTLS configuration parameters.
+type MTLSSpec struct {
+	// CA defines the spec for the custom CA for tenant's authentication.
+	//
+	// +required
+	// +kubebuilder:validation:Required
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="CA ConfigMap"
+	CA *CASpec `json:"ca"`
+}
+
 // AuthenticationSpec defines the oidc configuration per tenant for lokiStack Gateway component.
 type AuthenticationSpec struct {
 	// TenantName defines the name of the tenant.
@@ -191,10 +216,15 @@ type AuthenticationSpec struct {
 	TenantID string `json:"tenantId"`
 	// OIDC defines the spec for the OIDC tenant's authentication.
 	//
-	// +required
-	// +kubebuilder:validation:Required
+	// +optional
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="OIDC Configuration"
-	OIDC *OIDCSpec `json:"oidc"`
+	OIDC *OIDCSpec `json:"oidc,omitempty"`
+
+	// TLSConfig defines the spec for the mTLS tenant's authentication.
+	//
+	// +optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="mTLS Configuration"
+	MTLS *MTLSSpec `json:"mTLS,omitempty"`
 }
 
 // ModeType is the authentication/authorization mode in which LokiStack Gateway will be configured.
@@ -236,6 +266,29 @@ type TenantsSpec struct {
 	// +kubebuilder:validation:Optional
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Authorization"
 	Authorization *AuthorizationSpec `json:"authorization,omitempty"`
+
+	// Openshift defines the configuration specific to Openshift modes.
+	//
+	// +optional
+	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Openshift"
+	Openshift *OpenshiftTenantSpec `json:"openshift,omitempty"`
+}
+
+// OpenshiftTenantSpec defines the configuration specific to Openshift modes.
+type OpenshiftTenantSpec struct {
+	// AdminGroups defines a list of groups, whose members are considered to have admin-privileges by the Loki Operator.
+	// Setting this to an empty array disables admin groups.
+	//
+	// By default the following groups are considered admin-groups:
+	//  - system:cluster-admins
+	//  - cluster-admin
+	//  - dedicated-admin
+	//
+	// +optional
+	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Admin Groups"
+	AdminGroups []string `json:"adminGroups"`
 }
 
 // LokiComponentSpec defines the requirements to configure scheduling
@@ -261,6 +314,14 @@ type LokiComponentSpec struct {
 	// +optional
 	// +kubebuilder:validation:Optional
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
+
+	// PodAntiAffinity defines the pod anti affinity scheduling rules to schedule pods
+	// of a component.
+	//
+	// +optional
+	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,xDescriptors="urn:alm:descriptor:com.tectonic.ui:podAntiAffinity",displayName="PodAntiAffinity"
+	PodAntiAffinity *corev1.PodAntiAffinity `json:"podAntiAffinity,omitempty"`
 }
 
 // LokiTemplateSpec defines the template of all requirements to configure
@@ -345,8 +406,70 @@ type ClusterProxy struct {
 	NoProxy string `json:"noProxy,omitempty"`
 }
 
-// ObjectStorageTLSSpec is the TLS configuration for reaching the object storage endpoint.
-type ObjectStorageTLSSpec struct {
+// HashRingType defines the type of hash ring which can be used with the Loki cluster.
+//
+// +kubebuilder:validation:Enum=memberlist
+type HashRingType string
+
+const (
+	// HashRingMemberList when using memberlist for the distributed hash ring.
+	HashRingMemberList HashRingType = "memberlist"
+)
+
+// InstanceAddrType defines the type of pod network to use for advertising IPs to the ring.
+//
+// +kubebuilder:validation:Enum=default;podIP
+type InstanceAddrType string
+
+const (
+	// InstanceAddrDefault when using the first from any private network interfaces (RFC 1918 and RFC 6598).
+	InstanceAddrDefault InstanceAddrType = "default"
+	// InstanceAddrPodIP when using the public pod IP from the cluster's pod network.
+	InstanceAddrPodIP InstanceAddrType = "podIP"
+)
+
+// MemberListSpec defines the configuration for the memberlist based hash ring.
+type MemberListSpec struct {
+	// InstanceAddrType defines the type of address to use to advertise to the ring.
+	// Defaults to the first address from any private network interfaces of the current pod.
+	// Alternatively the public pod IP can be used in case private networks (RFC 1918 and RFC 6598)
+	// are not available.
+	//
+	// +optional
+	// +kubebuilder:validation:optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,xDescriptors={"urn:alm:descriptor:com.tectonic.ui:select:default","urn:alm:descriptor:com.tectonic.ui:select:podIP"},displayName="Instance Address"
+	InstanceAddrType InstanceAddrType `json:"instanceAddrType,omitempty"`
+
+	// EnableIPv6 enables IPv6 support for the memberlist based hash ring.
+	//
+	// Currently this also forces the instanceAddrType to podIP to avoid local address lookup
+	// for the memberlist.
+	//
+	// +optional
+	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,xDescriptors="urn:alm:descriptor:com.tectonic.ui:booleanSwitch",displayName="Enable IPv6"
+	EnableIPv6 bool `json:"enableIPv6,omitempty"`
+}
+
+// HashRingSpec defines the hash ring configuration
+type HashRingSpec struct {
+	// Type of hash ring implementation that should be used
+	//
+	// +required
+	// +kubebuilder:validation:Required
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,xDescriptors={"urn:alm:descriptor:com.tectonic.ui:select:memberlist"},displayName="Type"
+	// +kubebuilder:default:=memberlist
+	Type HashRingType `json:"type"`
+
+	// MemberList configuration spec
+	//
+	// +optional
+	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Memberlist Config"
+	MemberList *MemberListSpec `json:"memberlist,omitempty"`
+}
+
+type CASpec struct {
 	// Key is the data key of a ConfigMap containing a CA certificate.
 	// It needs to be in the same namespace as the LokiStack custom resource.
 	// If empty, it defaults to "service-ca.crt".
@@ -364,9 +487,14 @@ type ObjectStorageTLSSpec struct {
 	CA string `json:"caName"`
 }
 
+// ObjectStorageTLSSpec is the TLS configuration for reaching the object storage endpoint.
+type ObjectStorageTLSSpec struct {
+	CASpec `json:",inline"`
+}
+
 // ObjectStorageSecretType defines the type of storage which can be used with the Loki cluster.
 //
-// +kubebuilder:validation:Enum=azure;gcs;s3;swift
+// +kubebuilder:validation:Enum=azure;gcs;s3;swift;alibabacloud;
 type ObjectStorageSecretType string
 
 const (
@@ -381,6 +509,9 @@ const (
 
 	// ObjectStorageSecretSwift when using Swift for Loki storage
 	ObjectStorageSecretSwift ObjectStorageSecretType = "swift"
+
+	// ObjectStorageSecretAlibabaCloud when using AlibabaCloud OSS for Loki storage
+	ObjectStorageSecretAlibabaCloud ObjectStorageSecretType = "alibabacloud"
 )
 
 // ObjectStorageSecretSpec is a secret reference containing name only, no namespace.
@@ -389,7 +520,7 @@ type ObjectStorageSecretSpec struct {
 	//
 	// +required
 	// +kubebuilder:validation:Required
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,xDescriptors={"urn:alm:descriptor:com.tectonic.ui:select:azure","urn:alm:descriptor:com.tectonic.ui:select:gcs","urn:alm:descriptor:com.tectonic.ui:select:s3","urn:alm:descriptor:com.tectonic.ui:select:swift"},displayName="Object Storage Secret Type"
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,xDescriptors={"urn:alm:descriptor:com.tectonic.ui:select:azure","urn:alm:descriptor:com.tectonic.ui:select:gcs","urn:alm:descriptor:com.tectonic.ui:select:s3","urn:alm:descriptor:com.tectonic.ui:select:swift","urn:alm:descriptor:com.tectonic.ui:select:alibabacloud"},displayName="Object Storage Secret Type"
 	Type ObjectStorageSecretType `json:"type"`
 
 	// Name of a secret in the namespace configured for object storage secrets.
@@ -398,12 +529,20 @@ type ObjectStorageSecretSpec struct {
 	// +kubebuilder:validation:Required
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,xDescriptors="urn:alm:descriptor:io.kubernetes:Secret",displayName="Object Storage Secret Name"
 	Name string `json:"name"`
+
+	// CredentialMode can be used to set the desired credential mode for authenticating with the object storage.
+	// If this is not set, then the operator tries to infer the credential mode from the provided secret and its
+	// own configuration.
+	//
+	// +optional
+	// +kubebuilder:validation:Optional
+	CredentialMode CredentialMode `json:"credentialMode,omitempty"`
 }
 
 // ObjectStorageSchemaVersion defines the storage schema version which will be
 // used with the Loki cluster.
 //
-// +kubebuilder:validation:Enum=v11;v12
+// +kubebuilder:validation:Enum=v11;v12;v13
 type ObjectStorageSchemaVersion string
 
 const (
@@ -412,21 +551,26 @@ const (
 
 	// ObjectStorageSchemaV12 when using v12 for the storage schema
 	ObjectStorageSchemaV12 ObjectStorageSchemaVersion = "v12"
+
+	// ObjectStorageSchemaV13 when using v13 for the storage schema
+	ObjectStorageSchemaV13 ObjectStorageSchemaVersion = "v13"
 )
 
-// ObjectStorageSchema defines the requirements needed to configure a new
-// storage schema.
+// ObjectStorageSchema defines a schema version and the date when it will become effective.
 type ObjectStorageSchema struct {
 	// Version for writing and reading logs.
 	//
 	// +required
 	// +kubebuilder:validation:Required
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,xDescriptors={"urn:alm:descriptor:com.tectonic.ui:select:v11","urn:alm:descriptor:com.tectonic.ui:select:v12"},displayName="Version"
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,xDescriptors={"urn:alm:descriptor:com.tectonic.ui:select:v11","urn:alm:descriptor:com.tectonic.ui:select:v12","urn:alm:descriptor:com.tectonic.ui:select:v13"},displayName="Version"
 	Version ObjectStorageSchemaVersion `json:"version"`
 
-	// EffectiveDate is the date in UTC that the schema will be applied on.
-	// To ensure readibility of logs, this date should be before the current
-	// date in UTC.
+	// EffectiveDate contains a date in YYYY-MM-DD format which is interpreted in the UTC time zone.
+	//
+	// The configuration always needs at least one schema that is currently valid. This means that when creating a new
+	// LokiStack it is recommended to add a schema with the latest available version and an effective date of "yesterday".
+	// New schema versions added to the configuration always needs to be placed "in the future", so that Loki can start
+	// using it once the day rolls over.
 	//
 	// +required
 	// +kubebuilder:validation:Required
@@ -477,7 +621,7 @@ type QueryLimitSpec struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,xDescriptors="urn:alm:descriptor:com.tectonic.ui:number",displayName="Max Chunk per Query"
 	MaxChunksPerQuery int32 `json:"maxChunksPerQuery,omitempty"`
 
-	// MaxQuerySeries defines the the maximum of unique series
+	// MaxQuerySeries defines the maximum of unique series
 	// that is returned by a metric query.
 	//
 	// + optional
@@ -489,9 +633,75 @@ type QueryLimitSpec struct {
 	//
 	// +optional
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:default:="1m"
+	// +kubebuilder:default:="3m"
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Query Timeout"
 	QueryTimeout string `json:"queryTimeout,omitempty"`
+
+	// CardinalityLimit defines the cardinality limit for index queries.
+	//
+	// +optional
+	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,xDescriptors="urn:alm:descriptor:com.tectonic.ui:number",displayName="Cardinality Limit"
+	CardinalityLimit int32 `json:"cardinalityLimit,omitempty"`
+}
+
+// BlockedQueryType defines which type of query a blocked query should apply to.
+//
+// +kubebuilder:validation:Enum=filter;limited;metric
+type BlockedQueryType string
+
+const (
+	// BlockedQueryFilter is used, when the blocked query should apply to queries using a log filter.
+	BlockedQueryFilter BlockedQueryType = "filter"
+	// BlockedQueryLimited is used, when the blocked query should apply to queries without a filter or a metric aggregation.
+	BlockedQueryLimited BlockedQueryType = "limited"
+	// BlockedQueryMetric is used, when the blocked query should apply to queries with an aggregation.
+	BlockedQueryMetric BlockedQueryType = "metric"
+)
+
+// BlockedQueryTypes defines a slice of BlockedQueryType values to be used for a blocked query.
+type BlockedQueryTypes []BlockedQueryType
+
+// BlockedQuerySpec defines the rule spec for queries to be blocked.
+//
+// +kubebuilder:validation:MinProperties:=1
+type BlockedQuerySpec struct {
+	// Hash is a 32-bit FNV-1 hash of the query string.
+	//
+	// +optional
+	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,xDescriptors="urn:alm:descriptor:com.tectonic.ui:number",displayName="Query Hash"
+	Hash int32 `json:"hash,omitempty"`
+	// Pattern defines the pattern matching the queries to be blocked.
+	//
+	// +optional
+	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Query Pattern"
+	Pattern string `json:"pattern,omitempty"`
+	// Regex defines if the pattern is a regular expression. If false the pattern will be used only for exact matches.
+	//
+	// +optional
+	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,xDescriptors="urn:alm:descriptor:com.tectonic.ui:booleanSwitch",displayName="Regex"
+	Regex bool `json:"regex,omitempty"`
+	// Types defines the list of query types that should be considered for blocking.
+	//
+	// +optional
+	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Query Types"
+	Types BlockedQueryTypes `json:"types,omitempty"`
+}
+
+// PerTenantQueryLimitSpec defines the limits applied to per tenant query path.
+type PerTenantQueryLimitSpec struct {
+	QueryLimitSpec `json:",omitempty"`
+
+	// Blocked defines the list of rules to block matching queries.
+	//
+	// +optional
+	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Blocked"
+	Blocked []BlockedQuerySpec `json:"blocked,omitempty"`
 }
 
 // IngestionLimitSpec defines the limits applied at the ingestion path.
@@ -550,6 +760,28 @@ type IngestionLimitSpec struct {
 	// +kubebuilder:validation:Optional
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,xDescriptors="urn:alm:descriptor:com.tectonic.ui:number",displayName="Max Line Size"
 	MaxLineSize int32 `json:"maxLineSize,omitempty"`
+
+	// PerStreamDesiredRate defines the desired ingestion rate per second that LokiStack should
+	// target applying automatic stream sharding. Units MB.
+	//
+	// +optional
+	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,xDescriptors="urn:alm:descriptor:com.tectonic.ui:number",displayName="Per Stream Desired Rate (in MB)"
+	PerStreamDesiredRate int32 `json:"perStreamDesiredRate,omitempty"`
+
+	// PerStreamRateLimit defines the maximum byte rate per second per stream. Units MB.
+	//
+	// +optional
+	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,xDescriptors="urn:alm:descriptor:com.tectonic.ui:number",displayName="Maximum byte rate per second per stream (in MB)"
+	PerStreamRateLimit int32 `json:"perStreamRateLimit,omitempty"`
+
+	// PerStreamRateLimitBurst defines the maximum burst bytes per stream. Units MB.
+	//
+	// +optional
+	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,xDescriptors="urn:alm:descriptor:com.tectonic.ui:number",displayName="Maximum burst bytes per stream (in MB)"
+	PerStreamRateLimitBurst int32 `json:"perStreamRateLimitBurst,omitempty"`
 }
 
 // RetentionStreamSpec defines a log stream with separate retention time.
@@ -612,6 +844,27 @@ type LimitsTemplateSpec struct {
 	Retention *RetentionLimitSpec `json:"retention,omitempty"`
 }
 
+// LimitsTemplateSpec defines the limits  applied at ingestion or query path.
+type PerTenantLimitsTemplateSpec struct {
+	// IngestionLimits defines the limits applied on ingested log streams.
+	//
+	// +optional
+	// +kubebuilder:validation:Optional
+	IngestionLimits *IngestionLimitSpec `json:"ingestion,omitempty"`
+
+	// QueryLimits defines the limit applied on querying log streams.
+	//
+	// +optional
+	// +kubebuilder:validation:Optional
+	QueryLimits *PerTenantQueryLimitSpec `json:"queries,omitempty"`
+
+	// Retention defines how long logs are kept in storage.
+	//
+	// +optional
+	// +kubebuilder:validation:Optional
+	Retention *RetentionLimitSpec `json:"retention,omitempty"`
+}
+
 // LimitsSpec defines the spec for limits applied at ingestion or query
 // path across the cluster or per tenant.
 type LimitsSpec struct {
@@ -627,7 +880,7 @@ type LimitsSpec struct {
 	// +optional
 	// +kubebuilder:validation:Optional
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Limits per Tenant"
-	Tenants map[string]LimitsTemplateSpec `json:"tenants,omitempty"`
+	Tenants map[string]PerTenantLimitsTemplateSpec `json:"tenants,omitempty"`
 }
 
 // RulesSpec defines the spec for the ruler component.
@@ -674,6 +927,13 @@ type LokiStackSpec struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,xDescriptors={"urn:alm:descriptor:com.tectonic.ui:select:1x.extra-small","urn:alm:descriptor:com.tectonic.ui:select:1x.small","urn:alm:descriptor:com.tectonic.ui:select:1x.medium"},displayName="LokiStack Size"
 	Size LokiStackSizeType `json:"size"`
 
+	// HashRing defines the spec for the distributed hash ring configuration.
+	//
+	// +optional
+	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced",displayName="Hash Ring"
+	HashRing *HashRingSpec `json:"hashRing,omitempty"`
+
 	// Storage defines the spec for the object storage endpoint to store logs.
 	//
 	// +required
@@ -695,6 +955,7 @@ type LokiStackSpec struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Cluster Proxy"
 	Proxy *ClusterProxy `json:"proxy,omitempty"`
 
+	// Deprecated: Please use replication.factor instead. This field will be removed in future versions of this CRD.
 	// ReplicationFactor defines the policy for log stream replication.
 	//
 	// +optional
@@ -703,7 +964,14 @@ type LokiStackSpec struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,xDescriptors="urn:alm:descriptor:com.tectonic.ui:number",displayName="Replication Factor"
 	ReplicationFactor int32 `json:"replicationFactor,omitempty"`
 
-	// Rules defines the spec for the ruler component
+	// Replication defines the configuration for Loki data replication.
+	//
+	// +optional
+	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Replication Spec"
+	Replication *ReplicationSpec `json:"replication,omitempty"`
+
+	// Rules defines the spec for the ruler component.
 	//
 	// +optional
 	// +kubebuilder:validation:Optional
@@ -717,7 +985,7 @@ type LokiStackSpec struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced",displayName="Rate Limiting"
 	Limits *LimitsSpec `json:"limits,omitempty"`
 
-	// Template defines the resource/limits/tolerations/nodeselectors per component
+	// Template defines the resource/limits/tolerations/nodeselectors per component.
 	//
 	// +optional
 	// +kubebuilder:validation:Optional
@@ -730,6 +998,41 @@ type LokiStackSpec struct {
 	// +kubebuilder:validation:Optional
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Tenants Configuration"
 	Tenants *TenantsSpec `json:"tenants,omitempty"`
+}
+
+type ReplicationSpec struct {
+	// Factor defines the policy for log stream replication.
+	//
+	// +optional
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:Minimum:=1
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,xDescriptors="urn:alm:descriptor:com.tectonic.ui:number",displayName="Replication Factor"
+	Factor int32 `json:"factor,omitempty"`
+
+	// Zones defines an array of ZoneSpec that the scheduler will try to satisfy.
+	// IMPORTANT: Make sure that the replication factor defined is less than or equal to the number of available zones.
+	//
+	// +optional
+	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Zones Spec"
+	Zones []ZoneSpec `json:"zones,omitempty"`
+}
+
+// ZoneSpec defines the spec to support zone-aware component deployments.
+type ZoneSpec struct {
+	// MaxSkew describes the maximum degree to which Pods can be unevenly distributed.
+	//
+	// +required
+	// +kubebuilder:default:=1
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,xDescriptors="urn:alm:descriptor:com.tectonic.ui:number",displayName="Max Skew"
+	MaxSkew int `json:"maxSkew"`
+
+	// TopologyKey is the key that defines a topology in the Nodes' labels.
+	//
+	// +required
+	// +kubebuilder:validation:Required
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Topology Key"
+	TopologyKey string `json:"topologyKey"`
 }
 
 // LokiStackConditionType deifnes the type of condition types of a Loki deployment.
@@ -748,6 +1051,10 @@ const (
 	// ConditionDegraded defines the condition that some or all components in the Loki deployment
 	// are degraded or the cluster cannot connect to object storage.
 	ConditionDegraded LokiStackConditionType = "Degraded"
+
+	// ConditionWarning is used for configurations that are not recommended, but don't currently cause
+	// issues. There can be multiple warning conditions active at a time.
+	ConditionWarning LokiStackConditionType = "Warning"
 )
 
 // LokiStackConditionReason defines the type for valid reasons of a Loki deployment conditions.
@@ -765,6 +1072,10 @@ const (
 	ReasonMissingObjectStorageSecret LokiStackConditionReason = "MissingObjectStorageSecret"
 	// ReasonInvalidObjectStorageSecret when the format of the secret is invalid.
 	ReasonInvalidObjectStorageSecret LokiStackConditionReason = "InvalidObjectStorageSecret"
+	// ReasonMissingTokenCCOAuthSecret when the secret generated by CCO for token authentication is missing.
+	// This is usually a transient error because the secret is not immediately available after creating the
+	// CredentialsRequest, but it can persist if the CCO or its configuration are incorrect.
+	ReasonMissingTokenCCOAuthSecret LokiStackConditionReason = "MissingTokenCCOAuthenticationSecret"
 	// ReasonInvalidObjectStorageSchema when the spec contains an invalid schema(s).
 	ReasonInvalidObjectStorageSchema LokiStackConditionReason = "InvalidObjectStorageSchema"
 	// ReasonMissingObjectStorageCAConfigMap when the required configmap to verify object storage
@@ -783,18 +1094,53 @@ const (
 	// ReasonMissingGatewayTenantSecret when the required tenant secret
 	// for authentication is missing.
 	ReasonMissingGatewayTenantSecret LokiStackConditionReason = "MissingGatewayTenantSecret"
+	// ReasonMissingGatewayTenantConfigMap when the required tenant configmap
+	// for authentication is missing.
+	ReasonMissingGatewayTenantConfigMap LokiStackConditionReason = "MissingGatewayTenantConfigMap"
 	// ReasonInvalidGatewayTenantSecret when the format of the secret is invalid.
 	ReasonInvalidGatewayTenantSecret LokiStackConditionReason = "InvalidGatewayTenantSecret"
+	// ReasonInvalidGatewayTenantConfigMap when the format of the configmap is invalid.
+	ReasonInvalidGatewayTenantConfigMap LokiStackConditionReason = "InvalidGatewayTenantConfigMap"
+	// ReasonMissingGatewayAuthenticationConfig when the config for when a tenant is missing authentication config
+	ReasonMissingGatewayAuthenticationConfig LokiStackConditionReason = "MissingGatewayTenantAuthenticationConfig"
 	// ReasonInvalidTenantsConfiguration when the tenant configuration provided is invalid.
 	ReasonInvalidTenantsConfiguration LokiStackConditionReason = "InvalidTenantsConfiguration"
 	// ReasonMissingGatewayOpenShiftBaseDomain when the reconciler cannot lookup the OpenShift DNS base domain.
 	ReasonMissingGatewayOpenShiftBaseDomain LokiStackConditionReason = "MissingGatewayOpenShiftBaseDomain"
 	// ReasonFailedCertificateRotation when the reconciler cannot rotate any of the required TLS certificates.
 	ReasonFailedCertificateRotation LokiStackConditionReason = "FailedCertificateRotation"
+	// ReasonQueryTimeoutInvalid when the QueryTimeout can not be parsed.
+	ReasonQueryTimeoutInvalid LokiStackConditionReason = "ReasonQueryTimeoutInvalid"
+	// ReasonZoneAwareNodesMissing when the cluster does not contain any nodes with the labels needed for zone-awareness.
+	ReasonZoneAwareNodesMissing LokiStackConditionReason = "ReasonZoneAwareNodesMissing"
+	// ReasonZoneAwareEmptyLabel when the node-label used for zone-awareness has an empty value.
+	ReasonZoneAwareEmptyLabel LokiStackConditionReason = "ReasonZoneAwareEmptyLabel"
+	// ReasonStorageNeedsSchemaUpdate when the object storage schema version is older than V13
+	ReasonStorageNeedsSchemaUpdate LokiStackConditionReason = "StorageNeedsSchemaUpdate"
+)
+
+// PodStatus is a short description of the status a Pod can be in.
+type PodStatus string
+
+const (
+	// PodPending means the pod has been accepted by the system, but one or more of the containers
+	// has not been started. This includes time before being bound to a node, as well as time spent
+	// pulling images onto the host.
+	PodPending PodStatus = "Pending"
+	// PodRunning means the pod has been bound to a node and all of the containers have been started.
+	// At least one container is still running or is in the process of being restarted.
+	PodRunning PodStatus = "Running"
+	// PodReady means the pod has been started and the readiness probe reports a successful status.
+	PodReady PodStatus = "Ready"
+	// PodFailed means that all containers in the pod have terminated, and at least one container has
+	// terminated in a failure (exited with a non-zero exit code or was stopped by the system).
+	PodFailed PodStatus = "Failed"
+	// PodStatusUnknown is used when none of the other statuses apply or the information is not ready yet.
+	PodStatusUnknown PodStatus = "Unknown"
 )
 
 // PodStatusMap defines the type for mapping pod status to pod name.
-type PodStatusMap map[corev1.PodPhase][]string
+type PodStatusMap map[PodStatus][]string
 
 // LokiStackComponentStatus defines the map of per pod status per LokiStack component.
 // Each component is represented by a separate map of v1.Phase to a list of pods.
@@ -856,6 +1202,27 @@ type LokiStackComponentStatus struct {
 	Ruler PodStatusMap `json:"ruler,omitempty"`
 }
 
+// CredentialMode represents the type of authentication used for accessing the object storage.
+//
+// +kubebuilder:validation:Enum=static;token;token-cco
+type CredentialMode string
+
+const (
+	// CredentialModeStatic represents the usage of static, long-lived credentials stored in a Secret.
+	// This is the default authentication mode and available for all supported object storage types.
+	CredentialModeStatic CredentialMode = "static"
+	// CredentialModeToken represents the usage of short-lived tokens retrieved from a credential source.
+	// In this mode the static configuration does not contain credentials needed for the object storage.
+	// Instead, they are generated during runtime using a service, which allows for shorter-lived credentials and
+	// much more granular control. This authentication mode is not supported for all object storage types.
+	CredentialModeToken CredentialMode = "token"
+	// CredentialModeTokenCCO represents the usage of short-lived tokens retrieved from a credential source.
+	// This mode is similar to CredentialModeToken, but instead of having a user-configured credential source,
+	// it is configured by the environment and the operator relies on the Cloud Credential Operator to provide
+	// a secret. This mode is only supported for certain object storage types in certain runtime environments.
+	CredentialModeTokenCCO CredentialMode = "token-cco"
+)
+
 // LokiStackStorageStatus defines the observed state of
 // the Loki storage configuration.
 type LokiStackStorageStatus struct {
@@ -865,6 +1232,12 @@ type LokiStackStorageStatus struct {
 	// +optional
 	// +kubebuilder:validation:Optional
 	Schemas []ObjectStorageSchema `json:"schemas,omitempty"`
+
+	// CredentialMode contains the authentication mode used for accessing the object storage.
+	//
+	// +optional
+	// +kubebuilder:validation:Optional
+	CredentialMode CredentialMode `json:"credentialMode,omitempty"`
 }
 
 // LokiStackStatus defines the observed state of LokiStack
@@ -895,6 +1268,7 @@ type LokiStackStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:storageversion
 // +kubebuilder:resource:categories=logging
+// +kubebuilder:webhook:path=/validate-loki-grafana-com-v1-lokistack,mutating=false,failurePolicy=fail,sideEffects=None,groups=loki.grafana.com,resources=lokistacks,verbs=create;update,versions=v1,name=vlokistack.loki.grafana.com,admissionReviewVersions=v1
 
 // LokiStack is the Schema for the lokistacks API
 //
@@ -921,5 +1295,14 @@ func init() {
 	SchemeBuilder.Register(&LokiStack{}, &LokiStackList{})
 }
 
-// Hub declares the v1beta1.LokiStack as the hub CRD version.
+// Hub declares the v1.LokiStack as the hub CRD version.
 func (*LokiStack) Hub() {}
+
+func (t BlockedQueryTypes) String() string {
+	res := make([]string, 0, len(t))
+	for _, t := range t {
+		res = append(res, string(t))
+	}
+
+	return strings.Join(res, ",")
+}

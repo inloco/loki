@@ -1,3 +1,9 @@
+variable "name" {
+  type        = string
+  description = "Name used for created AWS resources."
+  default     = "lambda_promtail"
+}
+
 variable "write_address" {
   type        = string
   description = "This is the Loki Write API compatible endpoint that you want to write logs to, either promtail or Loki."
@@ -66,6 +72,12 @@ variable "extra_labels" {
   default     = ""
 }
 
+variable "drop_labels" {
+  type        = string
+  description = "Comma separated list of labels to be drop, in the format 'name1,name2,...,nameN' to be omitted to entries forwarded by lambda-promtail."
+  default     = ""
+}
+
 variable "omit_extra_labels_prefix" {
   type        = bool
   description = "Whether or not to omit the prefix `__extra_` from extra labels defined in the variable `extra_labels`."
@@ -79,9 +91,9 @@ variable "batch_size" {
 }
 
 variable "stream_desired_rate" {
-  type = string
+  type        = string
   description = "Determines the desired rate of log ingestion per stream (MB/s)."
-  default = "3"
+  default     = "3"
 }
 
 variable "lambda_vpc_subnets" {
@@ -123,5 +135,17 @@ variable "elb_tags_as_labels" {
 variable "stream_rate_tracker_window_size" {
   type        = string
   description = "Determines the window size for the stream rate tracker (possibly signed sequence of decimal numbers, each with optional fraction and a unit suffix. Valid time units are \"ns\", \"us\" (or \"µs\"), \"ms\", \"s\", \"m\", \"h\".)."
-  default     = "100ms"  
+  default     = "100ms"
+}
+
+variable "sqs_enabled" {
+  type        = bool
+  description = "Enables sending S3 logs to an SQS queue which will trigger lambda-promtail, unsuccessfully processed message are sent to a dead-letter-queue"
+  default     = false
+}
+
+variable "sqs_queue_name_prefix" {
+  type        = string
+  description = "Name prefix for SQS queues"
+  default     = "s3-to-lambda-promtail"
 }

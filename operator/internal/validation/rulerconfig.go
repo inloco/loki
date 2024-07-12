@@ -4,14 +4,14 @@ import (
 	"context"
 	"fmt"
 
-	lokiv1beta1 "github.com/grafana/loki/operator/apis/loki/v1beta1"
-
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+
+	lokiv1 "github.com/grafana/loki/operator/apis/loki/v1"
 )
 
 var _ admission.CustomValidator = &RulerConfigValidator{}
@@ -23,31 +23,31 @@ type RulerConfigValidator struct{}
 // with the controller-runtime manager or returns an error.
 func (v *RulerConfigValidator) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
-		For(&lokiv1beta1.RulerConfig{}).
+		For(&lokiv1.RulerConfig{}).
 		WithValidator(v).
 		Complete()
 }
 
 // ValidateCreate implements admission.CustomValidator.
-func (v *RulerConfigValidator) ValidateCreate(ctx context.Context, obj runtime.Object) error {
+func (v *RulerConfigValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	return v.validate(ctx, obj)
 }
 
 // ValidateUpdate implements admission.CustomValidator.
-func (v *RulerConfigValidator) ValidateUpdate(ctx context.Context, _, newObj runtime.Object) error {
+func (v *RulerConfigValidator) ValidateUpdate(ctx context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
 	return v.validate(ctx, newObj)
 }
 
 // ValidateDelete implements admission.CustomValidator.
-func (v *RulerConfigValidator) ValidateDelete(_ context.Context, _ runtime.Object) error {
+func (v *RulerConfigValidator) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
 	// No validation on delete
-	return nil
+	return nil, nil
 }
 
-func (v *RulerConfigValidator) validate(ctx context.Context, obj runtime.Object) error {
-	rulerConfig, ok := obj.(*lokiv1beta1.RulerConfig)
+func (v *RulerConfigValidator) validate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+	rulerConfig, ok := obj.(*lokiv1.RulerConfig)
 	if !ok {
-		return apierrors.NewBadRequest(fmt.Sprintf("object is not of type RulerConfig: %t", obj))
+		return nil, apierrors.NewBadRequest(fmt.Sprintf("object is not of type RulerConfig: %t", obj))
 	}
 
 	var allErrs field.ErrorList
@@ -61,12 +61,12 @@ func (v *RulerConfigValidator) validate(ctx context.Context, obj runtime.Object)
 			allErrs = append(allErrs, field.Invalid(
 				field.NewPath("spec", "alertmanager", "client", "headerAuth", "credentials"),
 				ha.Credentials,
-				lokiv1beta1.ErrHeaderAuthCredentialsConflict.Error(),
+				lokiv1.ErrHeaderAuthCredentialsConflict.Error(),
 			))
 			allErrs = append(allErrs, field.Invalid(
 				field.NewPath("spec", "alertmanager", "client", "headerAuth", "credentialsFile"),
 				ha.CredentialsFile,
-				lokiv1beta1.ErrHeaderAuthCredentialsConflict.Error(),
+				lokiv1.ErrHeaderAuthCredentialsConflict.Error(),
 			))
 		}
 	}
@@ -81,22 +81,22 @@ func (v *RulerConfigValidator) validate(ctx context.Context, obj runtime.Object)
 				allErrs = append(allErrs, field.Invalid(
 					field.NewPath("spec", "overrides", tenant, "alertmanager", "client", "headerAuth", "credentials"),
 					oha.Credentials,
-					lokiv1beta1.ErrHeaderAuthCredentialsConflict.Error(),
+					lokiv1.ErrHeaderAuthCredentialsConflict.Error(),
 				))
 				allErrs = append(allErrs, field.Invalid(
 					field.NewPath("spec", "overrides", tenant, "alertmanager", "client", "headerAuth", "credentialsFile"),
 					oha.CredentialsFile,
-					lokiv1beta1.ErrHeaderAuthCredentialsConflict.Error(),
+					lokiv1.ErrHeaderAuthCredentialsConflict.Error(),
 				))
 			}
 		}
 	}
 
 	if len(allErrs) == 0 {
-		return nil
+		return nil, nil
 	}
 
-	return apierrors.NewInvalid(
+	return nil, apierrors.NewInvalid(
 		schema.GroupKind{Group: "loki.grafana.com", Kind: "RulerConfig"},
 		rulerConfig.Name,
 		allErrs,

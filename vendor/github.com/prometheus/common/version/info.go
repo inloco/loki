@@ -35,6 +35,8 @@ var (
 	GoArch    = runtime.GOARCH
 )
 
+// Deprecated: Use github.com/prometheus/client_golang/prometheus/collectors/version.NewCollector instead.
+//
 // NewCollector returns a collector that exports metrics about current version
 // information.
 func NewCollector(program string) prometheus.Collector {
@@ -48,11 +50,12 @@ func NewCollector(program string) prometheus.Collector {
 			),
 			ConstLabels: prometheus.Labels{
 				"version":   Version,
-				"revision":  getRevision(),
+				"revision":  GetRevision(),
 				"branch":    Branch,
 				"goversion": GoVersion,
 				"goos":      GoOS,
 				"goarch":    GoArch,
+				"tags":      GetTags(),
 			},
 		},
 		func() float64 { return 1 },
@@ -66,6 +69,7 @@ var versionInfoTmpl = `
   build date:       {{.buildDate}}
   go version:       {{.goVersion}}
   platform:         {{.platform}}
+  tags:             {{.tags}}
 `
 
 // Print returns version information.
@@ -73,12 +77,13 @@ func Print(program string) string {
 	m := map[string]string{
 		"program":   program,
 		"version":   Version,
-		"revision":  getRevision(),
+		"revision":  GetRevision(),
 		"branch":    Branch,
 		"buildUser": BuildUser,
 		"buildDate": BuildDate,
 		"goVersion": GoVersion,
 		"platform":  GoOS + "/" + GoArch,
+		"tags":      GetTags(),
 	}
 	t := template.Must(template.New("version").Parse(versionInfoTmpl))
 
@@ -91,10 +96,10 @@ func Print(program string) string {
 
 // Info returns version, branch and revision information.
 func Info() string {
-	return fmt.Sprintf("(version=%s, branch=%s, revision=%s)", Version, Branch, getRevision())
+	return fmt.Sprintf("(version=%s, branch=%s, revision=%s)", Version, Branch, GetRevision())
 }
 
 // BuildContext returns goVersion, platform, buildUser and buildDate information.
 func BuildContext() string {
-	return fmt.Sprintf("(go=%s, platform=%s, user=%s, date=%s)", GoVersion, GoOS+"/"+GoArch, BuildUser, BuildDate)
+	return fmt.Sprintf("(go=%s, platform=%s, user=%s, date=%s, tags=%s)", GoVersion, GoOS+"/"+GoArch, BuildUser, BuildDate, GetTags())
 }

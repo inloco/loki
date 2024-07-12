@@ -13,8 +13,9 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/grafana/loki/pkg/loki"
-	"github.com/grafana/loki/tools/doc-generator/parse"
+	"github.com/grafana/loki/v3/pkg/loki"
+	"github.com/grafana/loki/v3/tools/doc-generator/parse"
+	"golang.org/x/exp/slices"
 )
 
 const (
@@ -94,42 +95,27 @@ func annotateFlagPrefix(blocks []*parse.ConfigBlock) {
 }
 
 func generateBlocksMarkdown(blocks []*parse.ConfigBlock) string {
+	slices.SortFunc(blocks, func(a, b *parse.ConfigBlock) int {
+		if a.Name < b.Name {
+			return -1
+		}
+
+		if a.Name > b.Name {
+			return 1
+		}
+
+		if a.FlagsPrefix < b.FlagsPrefix {
+			return -1
+		}
+		if a.FlagsPrefix < b.FlagsPrefix {
+			return 1
+		}
+		return 0
+	})
+
 	md := &markdownWriter{}
 	md.writeConfigDoc(blocks)
 	return md.string()
-}
-
-func generateBlockMarkdown(blocks []*parse.ConfigBlock, blockName, fieldName string) string {
-	// Look for the requested block.
-	for _, block := range blocks {
-		if block.Name != blockName {
-			continue
-		}
-
-		md := &markdownWriter{}
-
-		// Wrap the root block with another block, so that we can show the name of the
-		// root field containing the block specs.
-		md.writeConfigBlock(&parse.ConfigBlock{
-			Name: blockName,
-			Desc: block.Desc,
-			Entries: []*parse.ConfigEntry{
-				{
-					Kind:      parse.KindBlock,
-					Name:      fieldName,
-					Required:  true,
-					Block:     block,
-					BlockDesc: "",
-					Root:      false,
-				},
-			},
-		})
-
-		return md.string()
-	}
-
-	// If the block has not been found, we return an empty string.
-	return ""
 }
 
 func main() {

@@ -16,6 +16,10 @@
 
 package version
 
-func getRevision() string {
+func GetRevision() string {
 	return Revision
+}
+
+func getTags() string {
+	return "unknown" // Not available prior to Go 1.18
 }

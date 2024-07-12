@@ -202,6 +202,8 @@ A service(s) is rate limiting at least 10% of all incoming requests.
 | `label_value_too_long` | `maxLabelValueLength` |
 | `line_too_long` | `maxLineSize` |
 | `max_label_names_per_series` | `maxLabelNamesPerSeries` |
+| `per_stream_rate_limit` | `perStreamRateLimit`, `perStreamRateLimitBurst` |
+
 
 ## Loki Storage Slow Write
 
@@ -306,3 +308,28 @@ The query queue is currently under high load.
 ### Steps
 
 - Increase the number of queriers
+
+## Lokistack Storage Schema Warning
+
+### Impact
+
+The LokiStack warns on a newer object storage schema being available for configuration.
+
+### Summary
+
+The schema configuration does not contain the most recent schema version and needs an update.
+
+### Severity
+
+`Warning`
+
+### Access Required
+
+- Console access to the cluster
+- Edit access to the namespace where the LokiStack is deployed:
+  - OpenShift
+    - `openshift-logging` (LokiStack)
+
+### Steps
+
+- Add a new object storage schema V13 with a future EffectiveDate

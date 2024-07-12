@@ -16,8 +16,9 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/golang/snappy"
 	"github.com/grafana/dskit/backoff"
-	"github.com/grafana/loki/pkg/logproto"
 	"github.com/prometheus/common/model"
+
+	"github.com/grafana/loki/pkg/logproto"
 )
 
 const (
@@ -145,9 +146,11 @@ func (b *batch) createPushRequest() (*logproto.PushRequest, int) {
 }
 
 func (b *batch) flushBatch(ctx context.Context) error {
-	err := b.client.sendToPromtail(ctx, b)
-	if err != nil {
-		return err
+	if b.client != nil {
+		err := b.client.sendToPromtail(ctx, b)
+		if err != nil {
+			return err
+		}
 	}
 	b.resetBatch()
 

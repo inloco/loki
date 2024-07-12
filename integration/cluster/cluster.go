@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
@@ -15,19 +16,24 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/go-kit/log"
+	"github.com/go-kit/log/level"
 	"github.com/grafana/dskit/multierror"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/common/model"
 	"gopkg.in/yaml.v2"
 
-	"github.com/grafana/loki/pkg/loki"
-	"github.com/grafana/loki/pkg/util/cfg"
-	"github.com/grafana/loki/pkg/validation"
+	"github.com/grafana/loki/v3/integration/util"
+
+	"github.com/grafana/loki/v3/pkg/loki"
+	"github.com/grafana/loki/v3/pkg/storage"
+	"github.com/grafana/loki/v3/pkg/storage/config"
+	"github.com/grafana/loki/v3/pkg/util/cfg"
+	util_log "github.com/grafana/loki/v3/pkg/util/log"
+	"github.com/grafana/loki/v3/pkg/validation"
 )
 
-var (
-	wrapRegistryOnce sync.Once
-
-	configTemplate = template.Must(template.New("").Parse(`
+var configTemplate = template.Must(template.New("").Parse(`
 auth_enabled: true
 
 server:
@@ -35,7 +41,6 @@ server:
   grpc_listen_port: 0
   grpc_server_max_recv_msg_size: 110485813
   grpc_server_max_send_msg_size: 110485813
-
 
 common:
   path_prefix: {{.dataPath}}
@@ -54,27 +59,43 @@ limits_config:
   per_stream_rate_limit_burst: 50MB
   ingestion_rate_mb: 50
   ingestion_burst_size_mb: 50
+  reject_old_samples: false
+  allow_structured_metadata: true
+  discover_service_name:
+  discover_log_levels: false
+  otlp_config:
+    resource_attributes:
+      attributes_config:
+        - action: index_label
+          attributes: ["service.name"]
+    log_attributes:
+      - action: drop
+        attributes: [email]
 
 storage_config:
+  named_stores:
+    filesystem:
+      store-1:
+        directory: {{.sharedDataPath}}/fs-store-1
   boltdb_shipper:
-    shared_store: filesystem
-    active_index_directory: {{.dataPath}}/index
+    active_index_directory: {{.dataPath}}/boltdb-index
     cache_location: {{.dataPath}}/boltdb-cache
+  tsdb_shipper:
+    active_index_directory: {{.dataPath}}/tsdb-index
+    cache_location: {{.dataPath}}/tsdb-cache
+  bloom_shipper:
+    working_directory: {{.dataPath}}/bloom-shipper
 
-schema_config:
-  configs:
-    - from: 2020-10-24
-      store: boltdb-shipper
-      object_store: filesystem
-      schema: v11
-      index:
-        prefix: index_
-        period: 24h
+bloom_gateway:
+  enabled: false
+
+bloom_compactor:
+  enabled: false
 
 compactor:
-  working_directory: {{.dataPath}}/retention
-  shared_store: filesystem
+  working_directory: {{.dataPath}}/compactor
   retention_enabled: true
+  delete_request_store: store-1
 
 analytics:
   reporting_enabled: false
@@ -86,57 +107,35 @@ ingester:
 querier:
   multi_tenant_queries_enabled: true
 
-{{if .remoteWriteUrls}}
+query_scheduler:
+  max_outstanding_requests_per_tenant: 2048
+
 ruler:
-  wal:
-    dir: {{.rulerWALPath}}
-  storage:
-    type: local
-    local:
-      directory: {{.rulesPath}}
-  rule_path: {{.sharedDataPath}}/rule
   enable_api: true
   ring:
     kvstore:
       store: inmemory
-  remote_write:
-    enabled: true
-    clients:
-      remote_client1:
-        url: {{index .remoteWriteUrls 0}}/api/v1/write
-      remote_client2:
-        url: {{index .remoteWriteUrls 1}}/api/v1/write
-{{end}}
+  wal:
+    dir: {{.sharedDataPath}}/ruler-wal
+  storage:
+    type: local
+    local:
+      directory: {{.sharedDataPath}}/rules
+  rule_path: {{.sharedDataPath}}/prom-rule
 `))
 
-	rulesConfig = `
-groups:
-- name: always-firing
-  interval: 1s
-  rules:
-  - alert: fire
-    expr: |
-      1 > 0
-    for: 0m
-    labels:
-      severity: warning
-    annotations:
-      summary: test
-`
-)
-
-func wrapRegistry() {
-	wrapRegistryOnce.Do(func() {
-		prometheus.DefaultRegisterer = &wrappedRegisterer{Registerer: prometheus.DefaultRegisterer}
-	})
+func resetMetricRegistry() {
+	registry := &wrappedRegisterer{Registry: prometheus.NewRegistry()}
+	prometheus.DefaultRegisterer = registry
+	prometheus.DefaultGatherer = registry
 }
 
 type wrappedRegisterer struct {
-	prometheus.Registerer
+	*prometheus.Registry
 }
 
 func (w *wrappedRegisterer) Register(collector prometheus.Collector) error {
-	if err := w.Registerer.Register(collector); err != nil {
+	if err := w.Registry.Register(collector); err != nil {
 		var aErr prometheus.AlreadyRegisteredError
 		if errors.As(err, &aErr) {
 			return nil
@@ -156,29 +155,49 @@ func (w *wrappedRegisterer) MustRegister(collectors ...prometheus.Collector) {
 
 type Cluster struct {
 	sharedPath    string
-	overridesFile string
 	components    []*Component
 	waitGroup     sync.WaitGroup
+	initedAt      model.Time
+	periodCfgs    []string
+	overridesFile string
+	schemaVer     string
 }
 
-func New() *Cluster {
-	wrapRegistry()
-	sharedPath, err := os.MkdirTemp("", "loki-shared-data")
+func New(logLevel level.Value, opts ...func(*Cluster)) *Cluster {
+	if logLevel != nil {
+		util_log.Logger = level.NewFilter(log.NewLogfmtLogger(os.Stderr), level.Allow(logLevel))
+	}
+
+	resetMetricRegistry()
+	sharedPath, err := os.MkdirTemp("", "loki-shared-data-")
 	if err != nil {
 		panic(err.Error())
 	}
 
 	overridesFile := filepath.Join(sharedPath, "loki-overrides.yaml")
 
-	err = os.WriteFile(filepath.Join(sharedPath, "loki-overrides.yaml"), []byte(`overrides:`), 0777)
+	err = os.WriteFile(overridesFile, []byte(`overrides:`), 0o777)
 	if err != nil {
 		panic(fmt.Errorf("error creating overrides file: %w", err))
 	}
 
-	return &Cluster{
+	cluster := &Cluster{
 		sharedPath:    sharedPath,
+		initedAt:      model.Now(),
 		overridesFile: overridesFile,
+		schemaVer:     "v11",
 	}
+
+	for _, opt := range opts {
+		opt(cluster)
+	}
+
+	return cluster
+}
+
+// SetSchemaVer sets a schema version for all the schemas
+func (c *Cluster) SetSchemaVer(schemaVer string) {
+	c.schemaVer = schemaVer
 }
 
 func (c *Cluster) Run() error {
@@ -194,6 +213,10 @@ func (c *Cluster) Run() error {
 	return nil
 }
 
+func (c *Cluster) ResetSchemaConfig() {
+	c.periodCfgs = nil
+}
+
 func (c *Cluster) Restart() error {
 	if err := c.stop(false); err != nil {
 		return err
@@ -203,6 +226,8 @@ func (c *Cluster) Restart() error {
 }
 
 func (c *Cluster) Cleanup() error {
+	// cleanup singleton boltdb shipper client instances
+	storage.ResetBoltDBIndexClientsWithShipper()
 	return c.stop(true)
 }
 
@@ -265,16 +290,23 @@ type Component struct {
 	flags   []string
 
 	configFile    string
+	extraConfigs  []string
 	overridesFile string
 	dataPath      string
-	rulerWALPath  string
-	rulesPath     string
-	RulesTenant   string
 
 	running bool
 	wg      sync.WaitGroup
+}
 
-	RemoteWriteUrls []string
+// ClusterSharedPath returns the path to the shared directory between all components in the cluster.
+// This path will be removed once the cluster is stopped.
+func (c *Component) ClusterSharedPath() string {
+	return c.cluster.sharedPath
+}
+
+// component should be restarted if it's already running for the new flags to take effect
+func (c *Component) AddFlags(flags ...string) {
+	c.flags = append(c.flags, flags...)
 }
 
 func (c *Component) HTTPURL() string {
@@ -285,6 +317,14 @@ func (c *Component) GRPCURL() string {
 	return fmt.Sprintf("localhost:%s", port(c.loki.Server.GRPCListenAddr().String()))
 }
 
+func (c *Component) WithExtraConfig(cfg string) {
+	if c.running {
+		panic("cannot set extra config after component is running")
+	}
+
+	c.extraConfigs = append(c.extraConfigs, cfg)
+}
+
 func port(addr string) string {
 	parts := strings.Split(addr, ":")
 	return parts[len(parts)-1]
@@ -293,54 +333,22 @@ func port(addr string) string {
 func (c *Component) writeConfig() error {
 	var err error
 
-	configFile, err := os.CreateTemp("", "loki-config")
+	configFile, err := os.CreateTemp("", fmt.Sprintf("loki-%s-config-*.yaml", c.name))
 	if err != nil {
 		return fmt.Errorf("error creating config file: %w", err)
 	}
 
-	c.dataPath, err = os.MkdirTemp("", "loki-data")
+	c.dataPath, err = os.MkdirTemp("", fmt.Sprintf("loki-%s-data-", c.name))
 	if err != nil {
 		return fmt.Errorf("error creating data path: %w", err)
 	}
 
-	if len(c.RemoteWriteUrls) > 0 {
-		c.rulesPath, err = os.MkdirTemp(c.cluster.sharedPath, "rules")
-		if err != nil {
-			return fmt.Errorf("error creating rules path: %w", err)
-		}
-
-		fakeDir, err := os.MkdirTemp(c.rulesPath, "fake")
-		if err != nil {
-			return fmt.Errorf("error creating rules/fake path: %w", err)
-		}
-
-		s := strings.Split(fakeDir, "/")
-		c.RulesTenant = s[len(s)-1]
-
-		c.rulerWALPath, err = os.MkdirTemp(c.cluster.sharedPath, "ruler-wal")
-		if err != nil {
-			return fmt.Errorf("error creating ruler-wal path: %w", err)
-		}
-
-		rulesConfigFile, err := os.CreateTemp(fakeDir, "rules*.yaml")
-		if err != nil {
-			return fmt.Errorf("error creating rules config file: %w", err)
-		}
-
-		if _, err = rulesConfigFile.Write([]byte(rulesConfig)); err != nil {
-			return fmt.Errorf("error writing to rules config file: %w", err)
-		}
-
-		rulesConfigFile.Close()
+	mergedConfig, err := c.MergedConfig()
+	if err != nil {
+		return fmt.Errorf("error getting merged config: %w", err)
 	}
 
-	if err := configTemplate.Execute(configFile, map[string]interface{}{
-		"dataPath":        c.dataPath,
-		"sharedDataPath":  c.cluster.sharedPath,
-		"remoteWriteUrls": c.RemoteWriteUrls,
-		"rulesPath":       c.rulesPath,
-		"rulerWALPath":    c.rulerWALPath,
-	}); err != nil {
+	if err := os.WriteFile(configFile.Name(), mergedConfig, 0o644); err != nil {
 		return fmt.Errorf("error writing config file: %w", err)
 	}
 
@@ -349,6 +357,53 @@ func (c *Component) writeConfig() error {
 	}
 	c.configFile = configFile.Name()
 	return nil
+}
+
+// MergedConfig merges the base config template with any additional config that has been provided
+func (c *Component) MergedConfig() ([]byte, error) {
+	var sb bytes.Buffer
+
+	periodStart := config.DayTime{Time: c.cluster.initedAt.Add(-24 * time.Hour)}
+	additionalPeriodStart := config.DayTime{Time: c.cluster.initedAt.Add(-7 * 24 * time.Hour)}
+
+	if err := configTemplate.Execute(&sb, map[string]interface{}{
+		"dataPath":       c.dataPath,
+		"sharedDataPath": c.cluster.sharedPath,
+	}); err != nil {
+		return nil, fmt.Errorf("error writing config file: %w", err)
+	}
+
+	merger := util.NewYAMLMerger()
+	merger.AddFragment(sb.Bytes())
+
+	// default to using boltdb index
+	if len(c.cluster.periodCfgs) == 0 {
+		c.cluster.periodCfgs = []string{boltDBShipperSchemaConfigTemplate}
+	}
+
+	for _, periodCfg := range c.cluster.periodCfgs {
+		var buf bytes.Buffer
+		if err := template.Must(template.New("schema").Parse(periodCfg)).
+			Execute(&buf, map[string]interface{}{
+				"curPeriodStart":        periodStart.String(),
+				"additionalPeriodStart": additionalPeriodStart.String(),
+				"schemaVer":             c.cluster.schemaVer,
+			}); err != nil {
+			return nil, errors.New("error building schema_config")
+		}
+		merger.AddFragment(buf.Bytes())
+	}
+
+	for _, extra := range c.extraConfigs {
+		merger.AddFragment([]byte(extra))
+	}
+
+	merged, err := merger.Merge()
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal merged config to YAML: %w", err)
+	}
+
+	return merged, nil
 }
 
 func (c *Component) run() error {
@@ -360,7 +415,7 @@ func (c *Component) run() error {
 
 	var config loki.ConfigWrapper
 
-	var flagset = flag.NewFlagSet("test-flags", flag.ExitOnError)
+	flagset := flag.NewFlagSet("test-flags", flag.ExitOnError)
 
 	if err := cfg.DynamicUnmarshal(&config, append(
 		c.flags,
@@ -368,6 +423,8 @@ func (c *Component) run() error {
 		c.configFile,
 		"-limits.per-user-override-config",
 		c.overridesFile,
+		"-limits.per-user-override-period",
+		"1s",
 	), flagset); err != nil {
 		return err
 	}
@@ -376,6 +433,7 @@ func (c *Component) run() error {
 		return err
 	}
 
+	config.LimitsConfig.SetGlobalOTLPConfig(config.Distributor.OTLPConfig)
 	var err error
 	c.loki, err = loki.New(config.Config)
 	if err != nil {
@@ -440,12 +498,6 @@ func (c *Component) cleanup() (files []string, dirs []string) {
 	if c.dataPath != "" {
 		dirs = append(dirs, c.dataPath)
 	}
-	if c.rulerWALPath != "" {
-		dirs = append(dirs, c.rulerWALPath)
-	}
-	if c.rulesPath != "" {
-		dirs = append(dirs, c.rulesPath)
-	}
 
 	return files, dirs
 }
@@ -473,7 +525,7 @@ func (c *Component) SetTenantLimits(tenant string, limits validation.Limits) err
 		return err
 	}
 
-	return os.WriteFile(c.overridesFile, config, 0777)
+	return os.WriteFile(c.overridesFile, config, 0o777)
 }
 
 func (c *Component) GetTenantLimits(tenant string) validation.Limits {

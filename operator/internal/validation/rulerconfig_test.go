@@ -4,41 +4,40 @@ import (
 	"context"
 	"testing"
 
-	"github.com/grafana/loki/operator/apis/loki/v1beta1"
-	lokiv1beta1 "github.com/grafana/loki/operator/apis/loki/v1beta1"
-	"github.com/grafana/loki/operator/internal/validation"
-
 	"github.com/stretchr/testify/require"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
+
+	lokiv1 "github.com/grafana/loki/operator/apis/loki/v1"
+	"github.com/grafana/loki/operator/internal/validation"
 )
 
 var rctt = []struct {
 	desc string
-	spec v1beta1.RulerConfigSpec
+	spec lokiv1.RulerConfigSpec
 	err  *apierrors.StatusError
 }{
 	{
 		desc: "valid spec with no AM header credentials",
-		spec: v1beta1.RulerConfigSpec{
-			AlertManagerSpec: &lokiv1beta1.AlertManagerSpec{
-				Client: &lokiv1beta1.AlertManagerClientConfig{
-					BasicAuth: &lokiv1beta1.AlertManagerClientBasicAuth{
-						Username: pointer.String("user"),
-						Password: pointer.String("pass"),
+		spec: lokiv1.RulerConfigSpec{
+			AlertManagerSpec: &lokiv1.AlertManagerSpec{
+				Client: &lokiv1.AlertManagerClientConfig{
+					BasicAuth: &lokiv1.AlertManagerClientBasicAuth{
+						Username: ptr.To("user"),
+						Password: ptr.To("pass"),
 					},
 				},
 			},
-			Overrides: map[string]lokiv1beta1.RulerOverrides{
+			Overrides: map[string]lokiv1.RulerOverrides{
 				"tenant": {
-					AlertManagerOverrides: &lokiv1beta1.AlertManagerSpec{
-						Client: &lokiv1beta1.AlertManagerClientConfig{
-							BasicAuth: &lokiv1beta1.AlertManagerClientBasicAuth{
-								Username: pointer.String("user1"),
-								Password: pointer.String("pass1"),
+					AlertManagerOverrides: &lokiv1.AlertManagerSpec{
+						Client: &lokiv1.AlertManagerClientConfig{
+							BasicAuth: &lokiv1.AlertManagerClientBasicAuth{
+								Username: ptr.To("user1"),
+								Password: ptr.To("pass1"),
 							},
 						},
 					},
@@ -48,20 +47,20 @@ var rctt = []struct {
 	},
 	{
 		desc: "valid spec with Credentials",
-		spec: v1beta1.RulerConfigSpec{
-			AlertManagerSpec: &lokiv1beta1.AlertManagerSpec{
-				Client: &lokiv1beta1.AlertManagerClientConfig{
-					HeaderAuth: &lokiv1beta1.AlertManagerClientHeaderAuth{
-						Credentials: pointer.String("creds"),
+		spec: lokiv1.RulerConfigSpec{
+			AlertManagerSpec: &lokiv1.AlertManagerSpec{
+				Client: &lokiv1.AlertManagerClientConfig{
+					HeaderAuth: &lokiv1.AlertManagerClientHeaderAuth{
+						Credentials: ptr.To("creds"),
 					},
 				},
 			},
-			Overrides: map[string]lokiv1beta1.RulerOverrides{
+			Overrides: map[string]lokiv1.RulerOverrides{
 				"tenant": {
-					AlertManagerOverrides: &lokiv1beta1.AlertManagerSpec{
-						Client: &lokiv1beta1.AlertManagerClientConfig{
-							HeaderAuth: &lokiv1beta1.AlertManagerClientHeaderAuth{
-								Credentials: pointer.String("creds1"),
+					AlertManagerOverrides: &lokiv1.AlertManagerSpec{
+						Client: &lokiv1.AlertManagerClientConfig{
+							HeaderAuth: &lokiv1.AlertManagerClientHeaderAuth{
+								Credentials: ptr.To("creds1"),
 							},
 						},
 					},
@@ -71,20 +70,20 @@ var rctt = []struct {
 	},
 	{
 		desc: "valid spec with CredentialsFile",
-		spec: v1beta1.RulerConfigSpec{
-			AlertManagerSpec: &lokiv1beta1.AlertManagerSpec{
-				Client: &lokiv1beta1.AlertManagerClientConfig{
-					HeaderAuth: &lokiv1beta1.AlertManagerClientHeaderAuth{
-						CredentialsFile: pointer.String("creds-file"),
+		spec: lokiv1.RulerConfigSpec{
+			AlertManagerSpec: &lokiv1.AlertManagerSpec{
+				Client: &lokiv1.AlertManagerClientConfig{
+					HeaderAuth: &lokiv1.AlertManagerClientHeaderAuth{
+						CredentialsFile: ptr.To("creds-file"),
 					},
 				},
 			},
-			Overrides: map[string]lokiv1beta1.RulerOverrides{
+			Overrides: map[string]lokiv1.RulerOverrides{
 				"tenant": {
-					AlertManagerOverrides: &lokiv1beta1.AlertManagerSpec{
-						Client: &lokiv1beta1.AlertManagerClientConfig{
-							HeaderAuth: &lokiv1beta1.AlertManagerClientHeaderAuth{
-								CredentialsFile: pointer.String("creds-file1"),
+					AlertManagerOverrides: &lokiv1.AlertManagerSpec{
+						Client: &lokiv1.AlertManagerClientConfig{
+							HeaderAuth: &lokiv1.AlertManagerClientHeaderAuth{
+								CredentialsFile: ptr.To("creds-file1"),
 							},
 						},
 					},
@@ -94,20 +93,20 @@ var rctt = []struct {
 	},
 	{
 		desc: "valid spec with CredentialsFile override",
-		spec: v1beta1.RulerConfigSpec{
-			AlertManagerSpec: &lokiv1beta1.AlertManagerSpec{
-				Client: &lokiv1beta1.AlertManagerClientConfig{
-					HeaderAuth: &lokiv1beta1.AlertManagerClientHeaderAuth{
-						Credentials: pointer.String("creds"),
+		spec: lokiv1.RulerConfigSpec{
+			AlertManagerSpec: &lokiv1.AlertManagerSpec{
+				Client: &lokiv1.AlertManagerClientConfig{
+					HeaderAuth: &lokiv1.AlertManagerClientHeaderAuth{
+						Credentials: ptr.To("creds"),
 					},
 				},
 			},
-			Overrides: map[string]lokiv1beta1.RulerOverrides{
+			Overrides: map[string]lokiv1.RulerOverrides{
 				"tenant": {
-					AlertManagerOverrides: &lokiv1beta1.AlertManagerSpec{
-						Client: &lokiv1beta1.AlertManagerClientConfig{
-							HeaderAuth: &lokiv1beta1.AlertManagerClientHeaderAuth{
-								CredentialsFile: pointer.String("creds-file1"),
+					AlertManagerOverrides: &lokiv1.AlertManagerSpec{
+						Client: &lokiv1.AlertManagerClientConfig{
+							HeaderAuth: &lokiv1.AlertManagerClientHeaderAuth{
+								CredentialsFile: ptr.To("creds-file1"),
 							},
 						},
 					},
@@ -117,22 +116,22 @@ var rctt = []struct {
 	},
 	{
 		desc: "both Credentials and CredentialsFile defined",
-		spec: v1beta1.RulerConfigSpec{
-			AlertManagerSpec: &lokiv1beta1.AlertManagerSpec{
-				Client: &lokiv1beta1.AlertManagerClientConfig{
-					HeaderAuth: &lokiv1beta1.AlertManagerClientHeaderAuth{
-						Credentials:     pointer.String("creds"),
-						CredentialsFile: pointer.String("creds-file"),
+		spec: lokiv1.RulerConfigSpec{
+			AlertManagerSpec: &lokiv1.AlertManagerSpec{
+				Client: &lokiv1.AlertManagerClientConfig{
+					HeaderAuth: &lokiv1.AlertManagerClientHeaderAuth{
+						Credentials:     ptr.To("creds"),
+						CredentialsFile: ptr.To("creds-file"),
 					},
 				},
 			},
-			Overrides: map[string]lokiv1beta1.RulerOverrides{
+			Overrides: map[string]lokiv1.RulerOverrides{
 				"tenant": {
-					AlertManagerOverrides: &lokiv1beta1.AlertManagerSpec{
-						Client: &lokiv1beta1.AlertManagerClientConfig{
-							HeaderAuth: &lokiv1beta1.AlertManagerClientHeaderAuth{
-								Credentials:     pointer.String("creds1"),
-								CredentialsFile: pointer.String("creds-file1"),
+					AlertManagerOverrides: &lokiv1.AlertManagerSpec{
+						Client: &lokiv1.AlertManagerClientConfig{
+							HeaderAuth: &lokiv1.AlertManagerClientHeaderAuth{
+								Credentials:     ptr.To("creds1"),
+								CredentialsFile: ptr.To("creds-file1"),
 							},
 						},
 					},
@@ -146,22 +145,22 @@ var rctt = []struct {
 				field.Invalid(
 					field.NewPath("spec", "alertmanager", "client", "headerAuth", "credentials"),
 					"creds",
-					lokiv1beta1.ErrHeaderAuthCredentialsConflict.Error(),
+					lokiv1.ErrHeaderAuthCredentialsConflict.Error(),
 				),
 				field.Invalid(
 					field.NewPath("spec", "alertmanager", "client", "headerAuth", "credentialsFile"),
 					"creds-file",
-					lokiv1beta1.ErrHeaderAuthCredentialsConflict.Error(),
+					lokiv1.ErrHeaderAuthCredentialsConflict.Error(),
 				),
 				field.Invalid(
 					field.NewPath("spec", "overrides", "tenant", "alertmanager", "client", "headerAuth", "credentials"),
 					"creds1",
-					lokiv1beta1.ErrHeaderAuthCredentialsConflict.Error(),
+					lokiv1.ErrHeaderAuthCredentialsConflict.Error(),
 				),
 				field.Invalid(
 					field.NewPath("spec", "overrides", "tenant", "alertmanager", "client", "headerAuth", "credentialsFile"),
 					"creds-file1",
-					lokiv1beta1.ErrHeaderAuthCredentialsConflict.Error(),
+					lokiv1.ErrHeaderAuthCredentialsConflict.Error(),
 				),
 			},
 		),
@@ -175,7 +174,7 @@ func TestRulerConfigValidationWebhook_ValidateCreate(t *testing.T) {
 			t.Parallel()
 
 			ctx := context.Background()
-			l := &v1beta1.RulerConfig{
+			l := &lokiv1.RulerConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "testing-ruler",
 				},
@@ -183,7 +182,7 @@ func TestRulerConfigValidationWebhook_ValidateCreate(t *testing.T) {
 			}
 
 			v := &validation.RulerConfigValidator{}
-			err := v.ValidateCreate(ctx, l)
+			_, err := v.ValidateCreate(ctx, l)
 			if err != nil {
 				require.Equal(t, tc.err, err)
 			} else {
@@ -200,7 +199,7 @@ func TestRulerConfigValidationWebhook_ValidateUpdate(t *testing.T) {
 			t.Parallel()
 
 			ctx := context.Background()
-			l := &v1beta1.RulerConfig{
+			l := &lokiv1.RulerConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "testing-ruler",
 				},
@@ -208,7 +207,7 @@ func TestRulerConfigValidationWebhook_ValidateUpdate(t *testing.T) {
 			}
 
 			v := &validation.RulerConfigValidator{}
-			err := v.ValidateUpdate(ctx, &v1beta1.RulerConfig{}, l)
+			_, err := v.ValidateUpdate(ctx, &lokiv1.RulerConfig{}, l)
 			if err != nil {
 				require.Equal(t, tc.err, err)
 			} else {

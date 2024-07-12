@@ -7,6 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-kit/log"
+	"go.uber.org/atomic"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/grafana/dskit/ring"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/labels"
@@ -14,8 +20,9 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/grafana/loki/pkg/logproto"
-	"github.com/grafana/loki/pkg/logql"
+	"github.com/grafana/loki/v3/pkg/logproto"
+	"github.com/grafana/loki/v3/pkg/logql"
+	"github.com/grafana/loki/v3/pkg/util/constants"
 )
 
 func TestIngesterQuerier_earlyExitOnQuorum(t *testing.T) {
@@ -61,6 +68,8 @@ func TestIngesterQuerier_earlyExitOnQuorum(t *testing.T) {
 		},
 	}
 
+	var cnt atomic.Int32
+
 	for testName, testData := range tests {
 		for _, retErr := range []bool{true, false} {
 			testName, testData, retErr := testName, testData, retErr
@@ -71,9 +80,9 @@ func TestIngesterQuerier_earlyExitOnQuorum(t *testing.T) {
 			}
 
 			t.Run(testName, func(t *testing.T) {
-				cnt := 0
 				wg := sync.WaitGroup{}
 				wait := make(chan struct{})
+				cnt.Store(0)
 
 				runFn := func(args mock.Arguments) {
 					wg.Done()
@@ -84,7 +93,7 @@ func TestIngesterQuerier_earlyExitOnQuorum(t *testing.T) {
 						// ctx should be cancelled after the first two replicas return
 						require.ErrorIs(t, ctx.Err(), context.Canceled)
 					case <-wait:
-						cnt++
+						cnt.Add(1)
 					case <-time.After(time.Second):
 						t.Error("timed out waiting for ctx cancellation")
 					}
@@ -96,12 +105,8 @@ func TestIngesterQuerier_earlyExitOnQuorum(t *testing.T) {
 				} else {
 					ingesterClient.On(testData.method, mock.Anything, mock.Anything, mock.Anything).Return(testData.retVal, nil).Run(runFn)
 				}
-				ingesterQuerier, err := newIngesterQuerier(
-					mockIngesterClientConfig(),
-					newReadRingMock(ringIngesters, 1),
-					mockQuerierConfig().ExtraQueryDelay,
-					newIngesterClientMockFactory(ingesterClient),
-				)
+
+				ingesterQuerier, err := newTestIngesterQuerier(newReadRingMock(ringIngesters, 1), ingesterClient)
 				require.NoError(t, err)
 
 				wg.Add(3)
@@ -116,7 +121,7 @@ func TestIngesterQuerier_earlyExitOnQuorum(t *testing.T) {
 
 				err = testData.testFn(ingesterQuerier)
 				ingesterClient.AssertNumberOfCalls(t, testData.method, 3)
-				require.Equal(t, 2, cnt)
+				require.Equal(t, int32(2), cnt.Load())
 				if retErr {
 					require.ErrorContains(t, err, testData.method+" failed")
 				} else {
@@ -171,7 +176,7 @@ func TestIngesterQuerier_earlyExitOnQuorum(t *testing.T) {
 			}
 
 			t.Run(testName, func(t *testing.T) {
-				cnt := 0
+				cnt.Store(0)
 				wg := sync.WaitGroup{}
 				wait := make(chan struct{})
 
@@ -184,7 +189,7 @@ func TestIngesterQuerier_earlyExitOnQuorum(t *testing.T) {
 						// should not be cancelled by the tracker
 						require.NoError(t, ctx.Err())
 					case <-wait:
-						cnt++
+						cnt.Add(1)
 					case <-time.After(time.Second):
 					}
 				}
@@ -195,12 +200,7 @@ func TestIngesterQuerier_earlyExitOnQuorum(t *testing.T) {
 				} else {
 					ingesterClient.On(testData.method, mock.Anything, mock.Anything, mock.Anything).Return(testData.retVal, nil).Run(runFn)
 				}
-				ingesterQuerier, err := newIngesterQuerier(
-					mockIngesterClientConfig(),
-					newReadRingMock(ringIngesters, 1),
-					mockQuerierConfig().ExtraQueryDelay,
-					newIngesterClientMockFactory(ingesterClient),
-				)
+				ingesterQuerier, err := newTestIngesterQuerier(newReadRingMock(ringIngesters, 1), ingesterClient)
 				require.NoError(t, err)
 
 				wg.Add(3)
@@ -215,7 +215,7 @@ func TestIngesterQuerier_earlyExitOnQuorum(t *testing.T) {
 
 				err = testData.testFn(ingesterQuerier)
 				ingesterClient.AssertNumberOfCalls(t, testData.method, 3)
-				require.Equal(t, 2, cnt)
+				require.Equal(t, int32(2), cnt.Load())
 				if retErr {
 					require.ErrorContains(t, err, testData.method+" failed")
 				} else {
@@ -292,12 +292,7 @@ func TestQuerier_tailDisconnectedIngesters(t *testing.T) {
 			ingesterClient := newQuerierClientMock()
 			ingesterClient.On("Tail", mock.Anything, &req, mock.Anything).Return(newTailClientMock(), nil)
 
-			ingesterQuerier, err := newIngesterQuerier(
-				mockIngesterClientConfig(),
-				newReadRingMock(testData.ringIngesters, 0),
-				mockQuerierConfig().ExtraQueryDelay,
-				newIngesterClientMockFactory(ingesterClient),
-			)
+			ingesterQuerier, err := newTestIngesterQuerier(newReadRingMock(testData.ringIngesters, 0), ingesterClient)
 			require.NoError(t, err)
 
 			actualClients, err := ingesterQuerier.TailDisconnectedIngesters(context.Background(), &req, testData.connectedIngestersAddr)
@@ -340,4 +335,80 @@ func TestConvertMatchersToString(t *testing.T) {
 			require.Equal(t, tc.expected, convertMatchersToString(tc.matchers))
 		})
 	}
+}
+
+func TestIngesterQuerier_Volume(t *testing.T) {
+	t.Run("it gets label volumes from all the ingesters", func(t *testing.T) {
+		ret := &logproto.VolumeResponse{
+			Volumes: []logproto.Volume{
+				{Name: `{foo="bar"}`, Volume: 38},
+			},
+			Limit: 10,
+		}
+
+		ingesterClient := newQuerierClientMock()
+		ingesterClient.On("GetVolume", mock.Anything, mock.Anything, mock.Anything).Return(ret, nil)
+
+		ingesterQuerier, err := newTestIngesterQuerier(newReadRingMock([]ring.InstanceDesc{mockInstanceDesc("1.1.1.1", ring.ACTIVE), mockInstanceDesc("3.3.3.3", ring.ACTIVE)}, 0), ingesterClient)
+		require.NoError(t, err)
+
+		volumes, err := ingesterQuerier.Volume(context.Background(), "", 0, 1, 10, nil, "labels")
+		require.NoError(t, err)
+
+		require.Equal(t, []logproto.Volume{
+			{Name: `{foo="bar"}`, Volume: 76},
+		}, volumes.Volumes)
+	})
+
+	t.Run("it returns an empty result when an unimplemented error happens", func(t *testing.T) {
+		ingesterClient := newQuerierClientMock()
+		ingesterClient.On("GetVolume", mock.Anything, mock.Anything, mock.Anything).Return(nil, status.Error(codes.Unimplemented, "something bad"))
+
+		ingesterQuerier, err := newTestIngesterQuerier(newReadRingMock([]ring.InstanceDesc{mockInstanceDesc("1.1.1.1", ring.ACTIVE), mockInstanceDesc("3.3.3.3", ring.ACTIVE)}, 0), ingesterClient)
+		require.NoError(t, err)
+
+		volumes, err := ingesterQuerier.Volume(context.Background(), "", 0, 1, 10, nil, "labels")
+		require.NoError(t, err)
+
+		require.Equal(t, []logproto.Volume(nil), volumes.Volumes)
+	})
+}
+
+func TestIngesterQuerier_DetectedLabels(t *testing.T) {
+	t.Run("it returns all unique detected labels from all ingesters", func(t *testing.T) {
+		req := logproto.DetectedLabelsRequest{}
+
+		ingesterClient := newQuerierClientMock()
+		ingesterClient.On("GetDetectedLabels", mock.Anything, mock.Anything, mock.Anything).Return(&logproto.LabelToValuesResponse{Labels: map[string]*logproto.UniqueLabelValues{
+			"cluster": {Values: []string{"ingester"}},
+			"foo":     {Values: []string{"abc", "abc", "ghi"}},
+			"bar":     {Values: []string{"cgi", "def"}},
+			"all-ids": {Values: []string{"1", "3", "3", "3"}},
+		}}, nil)
+
+		readRingMock := newReadRingMock([]ring.InstanceDesc{mockInstanceDesc("1.1.1.1", ring.ACTIVE), mockInstanceDesc("3.3.3.3", ring.ACTIVE)}, 0)
+		ingesterQuerier, err := newTestIngesterQuerier(readRingMock, ingesterClient)
+		require.NoError(t, err)
+
+		detectedLabels, err := ingesterQuerier.DetectedLabel(context.Background(), &req)
+		require.NoError(t, err)
+
+		require.Equal(t, &logproto.LabelToValuesResponse{Labels: map[string]*logproto.UniqueLabelValues{
+			"all-ids": {Values: []string{"1", "3"}},
+			"bar":     {Values: []string{"cgi", "def"}},
+			"cluster": {Values: []string{"ingester"}},
+			"foo":     {Values: []string{"abc", "ghi"}},
+		}}, detectedLabels)
+	})
+}
+
+func newTestIngesterQuerier(readRingMock *readRingMock, ingesterClient *querierClientMock) (*IngesterQuerier, error) {
+	return newIngesterQuerier(
+		mockIngesterClientConfig(),
+		readRingMock,
+		mockQuerierConfig().ExtraQueryDelay,
+		newIngesterClientMockFactory(ingesterClient),
+		constants.Loki,
+		log.NewNopLogger(),
+	)
 }

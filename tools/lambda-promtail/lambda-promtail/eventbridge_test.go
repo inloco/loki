@@ -3,11 +3,14 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"strconv"
+	"testing"
+	"time"
+
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/go-kit/log"
 	"github.com/stretchr/testify/require"
-	"os"
-	"testing"
 )
 
 type testPromtailClient struct{}
@@ -25,7 +28,7 @@ func Test_processEventBridgeEvent(t *testing.T) {
 		var ebEvent events.CloudWatchEvent
 		require.NoError(t, json.Unmarshal(bs, &ebEvent))
 
-		processor := s3EventProcessor(func(ctx context.Context, ev *events.S3Event, pc Client, log *log.Logger) error {
+		processor := s3EventProcessor(func(ctx context.Context, ev *events.S3Event, pc Client, log *log.Logger, streamDesiredRate float64, streamRateTrackerWindowSize time.Duration) error {
 			require.Len(t, ev.Records, 1)
 			require.Equal(t, events.S3EventRecord{
 				AWSRegion: "us-east-2",
@@ -41,7 +44,9 @@ func Test_processEventBridgeEvent(t *testing.T) {
 			return nil
 		})
 
-		err = processEventBridgeEvent(context.Background(), &ebEvent, testPromtailClient{}, &logger, processor)
+		streamDesiredRate, _ := strconv.ParseFloat("0.5", 64)
+		streamRateTrackerWindowSize, _ := time.ParseDuration("100ms")
+		err = processEventBridgeEvent(context.Background(), &ebEvent, testPromtailClient{}, &logger, processor, streamDesiredRate, streamRateTrackerWindowSize)
 		require.NoError(t, err)
 
 		t.Run("s3 object created event", func(t *testing.T) {
@@ -52,11 +57,11 @@ func Test_processEventBridgeEvent(t *testing.T) {
 				DetailType: "Object Restore Initiated",
 			}
 
-			processor := s3EventProcessor(func(ctx context.Context, ev *events.S3Event, pc Client, log *log.Logger) error {
+			processor := s3EventProcessor(func(ctx context.Context, ev *events.S3Event, pc Client, log *log.Logger, streamDesiredRate float64, streamRateTrackerWindowSize time.Duration) error {
 				return nil
 			})
 
-			err = processEventBridgeEvent(context.Background(), &ebEvent, testPromtailClient{}, &logger, processor)
+			err = processEventBridgeEvent(context.Background(), &ebEvent, testPromtailClient{}, &logger, processor, streamDesiredRate, streamRateTrackerWindowSize)
 			require.Error(t, err, "expected process to fail due to unsupported event type")
 		})
 	})

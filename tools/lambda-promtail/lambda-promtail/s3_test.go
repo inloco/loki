@@ -11,7 +11,6 @@ import (
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/go-kit/log"
-	"github.com/grafana/loki/pkg/logproto"
 	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/require"
 )
@@ -437,6 +436,11 @@ func Test_getLabels(t *testing.T) {
 }
 
 func Test_parseS3Log(t *testing.T) {
+	newBatch := func(ctx context.Context) *batch {
+		batch, _ := newBatch(ctx, nil, 0, 0, NewLogger("test"))
+		return batch
+	}
+	elbTagsLabelSet := model.LabelSet{}
 	type args struct {
 		b               *batch
 		labels          map[string]string
@@ -459,9 +463,7 @@ func Test_parseS3Log(t *testing.T) {
 			args: args{
 				batchSize: 1024, // Set large enough we don't try and send to promtail
 				filename:  "../testdata/vpcflowlog.log.gz",
-				b: &batch{
-					streams: map[string]*logproto.Stream{},
-				},
+				b:         newBatch(context.Background()),
 				labels: map[string]string{
 					"type":       FLOW_LOG_TYPE,
 					"src":        "source",
@@ -472,7 +474,8 @@ func Test_parseS3Log(t *testing.T) {
 				},
 			},
 			expectedLen:    1,
-			expectedStream: `{__aws_log_type="s3_vpc_flow", __aws_s3_vpc_flow="source", __aws_s3_vpc_flow_owner="123456789"}`,
+			expectedStream: `{__aws_log_type="s3_vpc_flow", __aws_s3_vpc_flow="source", __aws_s3_vpc_flow_owner="123456789", __lambda_promtail_stream_shard__="1"}`,
+			expectedLog:    "level=debug msg=\"Parsing S3 log with labels: {__aws_log_type=\\\"s3_vpc_flow\\\", __aws_s3_vpc_flow=\\\"source\\\", __aws_s3_vpc_flow_owner=\\\"123456789\\\"}\"\n",
 			wantErr:        false,
 		},
 		{
@@ -480,9 +483,7 @@ func Test_parseS3Log(t *testing.T) {
 			args: args{
 				batchSize: 1024, // Set large enough we don't try and send to promtail
 				filename:  "../testdata/albaccesslog.log.gz",
-				b: &batch{
-					streams: map[string]*logproto.Stream{},
-				},
+				b:         newBatch(context.Background()),
 				labels: map[string]string{
 					"type":       LB_LOG_TYPE,
 					"src":        "source",
@@ -493,21 +494,20 @@ func Test_parseS3Log(t *testing.T) {
 				},
 			},
 			expectedLen:    1,
-			expectedStream: `{__aws_log_type="s3_lb", __aws_s3_lb="source", __aws_s3_lb_owner="123456789"}`,
+			expectedStream: `{__aws_log_type="s3_lb", __aws_s3_lb="source", __aws_s3_lb_owner="123456789", __lambda_promtail_stream_shard__="1"}`,
 			expectedTimestamps: []time.Time{
 				time.Date(2022, time.December, 6, 17, 42, 16, 176563000, time.UTC),
 				time.Date(2022, time.December, 6, 17, 42, 19, 86095000, time.UTC),
 			},
-			wantErr: false,
+			wantErr:     false,
+			expectedLog: "level=debug msg=\"Parsing S3 log with labels: {__aws_log_type=\\\"s3_lb\\\", __aws_s3_lb=\\\"source\\\", __aws_s3_lb_owner=\\\"123456789\\\"}\"\n",
 		},
 		{
 			name: "nlbaccesslogs",
 			args: args{
 				batchSize: 1024, // Set large enough we don't try and send to promtail
 				filename:  "../testdata/nlbaccesslog.log.gz",
-				b: &batch{
-					streams: map[string]*logproto.Stream{},
-				},
+				b:         newBatch(context.Background()),
 				labels: map[string]string{
 					"account_id": "123456789",
 					"type":       LB_LOG_TYPE,
@@ -520,21 +520,20 @@ func Test_parseS3Log(t *testing.T) {
 				},
 			},
 			expectedLen:    1,
-			expectedStream: `{__aws_log_type="s3_lb", __aws_s3_lb="source", __aws_s3_lb_owner="123456789"}`,
+			expectedStream: `{__aws_log_type="s3_lb", __aws_s3_lb="source", __aws_s3_lb_owner="123456789", __lambda_promtail_stream_shard__="1"}`,
 			expectedTimestamps: []time.Time{
 				time.Date(2018, time.December, 20, 2, 59, 40, 0, time.UTC),
 				time.Date(2020, time.April, 1, 8, 51, 42, 0, time.UTC),
 			},
-			wantErr: false,
+			wantErr:     false,
+			expectedLog: "level=debug msg=\"Parsing S3 log with labels: {__aws_log_type=\\\"s3_lb\\\", __aws_s3_lb=\\\"source\\\", __aws_s3_lb_owner=\\\"123456789\\\"}\"\n",
 		},
 		{
 			name: "cloudtraillogs",
 			args: args{
 				batchSize: 131072, // Set large enough we don't try and send to promtail
 				filename:  "../testdata/cloudtrail-log-file.json.gz",
-				b: &batch{
-					streams: map[string]*logproto.Stream{},
-				},
+				b:         newBatch(context.Background()),
 				labels: map[string]string{
 					"type":       CLOUDTRAIL_LOG_TYPE,
 					"src":        "source",
@@ -542,21 +541,20 @@ func Test_parseS3Log(t *testing.T) {
 				},
 			},
 			expectedLen:    1,
-			expectedStream: `{__aws_log_type="s3_cloudtrail", __aws_s3_cloudtrail="source", __aws_s3_cloudtrail_owner="123456789"}`,
+			expectedStream: `{__aws_log_type="s3_cloudtrail", __aws_s3_cloudtrail="source", __aws_s3_cloudtrail_owner="123456789", __lambda_promtail_stream_shard__="1"}`,
 			expectedTimestamps: []time.Time{
 				time.Date(2023, time.May, 19, 7, 44, 30, 0, time.UTC),
 				time.Date(2023, time.May, 19, 7, 44, 34, 0, time.UTC),
 			},
-			wantErr: false,
+			wantErr:     false,
+			expectedLog: "level=debug msg=\"Parsing S3 log with labels: {__aws_log_type=\\\"s3_cloudtrail\\\", __aws_s3_cloudtrail=\\\"source\\\", __aws_s3_cloudtrail_owner=\\\"123456789\\\"}\"\n",
 		},
 		{
 			name: "cloudtrail_digest_logs",
 			args: args{
 				batchSize: 131072, // Set large enough we don't try and send to promtail
 				filename:  "../testdata/cloudtrail-log-file.json.gz",
-				b: &batch{
-					streams: map[string]*logproto.Stream{},
-				},
+				b:         newBatch(context.Background()),
 				labels: map[string]string{
 					"type":       CLOUDTRAIL_DIGEST_LOG_TYPE,
 					"src":        "source",
@@ -566,15 +564,14 @@ func Test_parseS3Log(t *testing.T) {
 			expectedLen:    0,
 			expectedStream: ``,
 			wantErr:        false,
+			expectedLog:    "level=debug msg=\"Parsing S3 log with labels: {__aws_log_type=\\\"s3_cloudfront\\\", __aws_s3_cloudfront=\\\"DISTRIBUTIONID\\\", __aws_s3_cloudfront_owner=\\\"path/to/file\\\"}\"\n",
 		},
 		{
 			name: "cloudfrontlogs",
 			args: args{
 				batchSize: 131072, // Set large enough we don't try and send to promtail
 				filename:  "../testdata/cloudfront.log.gz",
-				b: &batch{
-					streams: map[string]*logproto.Stream{},
-				},
+				b:         newBatch(context.Background()),
 				labels: map[string]string{
 					"type":   CLOUDFRONT_LOG_TYPE,
 					"src":    "DISTRIBUTIONID",
@@ -582,21 +579,20 @@ func Test_parseS3Log(t *testing.T) {
 				},
 			},
 			expectedLen:    1,
-			expectedStream: `{__aws_log_type="s3_cloudfront", __aws_s3_cloudfront="DISTRIBUTIONID", __aws_s3_cloudfront_owner="path/to/file"}`,
+			expectedStream: `{__aws_log_type="s3_cloudfront", __aws_s3_cloudfront="DISTRIBUTIONID", __aws_s3_cloudfront_owner="path/to/file", __lambda_promtail_stream_shard__="1"}`,
 			expectedTimestamps: []time.Time{
 				time.Date(2023, time.April, 26, 7, 25, 11, 0, time.UTC),
 				time.Date(2023, time.April, 26, 7, 25, 11, 0, time.UTC),
 			},
-			wantErr: false,
+			wantErr:     false,
+			expectedLog: "level=debug msg=\"Parsing S3 log with labels: {__aws_log_type=\\\"s3_cloudfront\\\", __aws_s3_cloudfront=\\\"DISTRIBUTIONID\\\", __aws_s3_cloudfront_owner=\\\"path/to/file\\\"}\"\n",
 		},
 		{
 			name: "waflogs",
 			args: args{
 				batchSize: 131072, // Set large enough we don't try and send to promtail
 				filename:  "../testdata/waflog.log.gz",
-				b: &batch{
-					streams: map[string]*logproto.Stream{},
-				},
+				b:         newBatch(context.Background()),
 				labels: map[string]string{
 					"account_id": "11111111111",
 					"src":        "TEST-WEBACL",
@@ -604,7 +600,8 @@ func Test_parseS3Log(t *testing.T) {
 				},
 			},
 			expectedLen:    1,
-			expectedStream: `{__aws_log_type="s3_waf", __aws_s3_waf="TEST-WEBACL", __aws_s3_waf_owner="11111111111"}`,
+			expectedStream: `{__aws_log_type="s3_waf", __aws_s3_waf="TEST-WEBACL", __aws_s3_waf_owner="11111111111", __lambda_promtail_stream_shard__="1"}`,
+			expectedLog:    "level=debug msg=\"Parsing S3 log with labels: {__aws_log_type=\\\"s3_waf\\\", __aws_s3_waf=\\\"TEST-WEBACL\\\", __aws_s3_waf_owner=\\\"11111111111\\\"}\"\n",
 			expectedTimestamps: []time.Time{
 				time.Date(2023, time.August, 31, 4, 57, 42, 729000000, time.UTC),
 			},
@@ -615,9 +612,7 @@ func Test_parseS3Log(t *testing.T) {
 			args: args{
 				batchSize: 131072, // Set large enough we don't try and send to promtail
 				filename:  "../testdata/kinesis-event.json",
-				b: &batch{
-					streams: map[string]*logproto.Stream{},
-				},
+				b:         newBatch(context.Background()),
 				labels: map[string]string{
 					"bucket":        "missing_parser",
 					"bucket_owner":  "test",
@@ -628,6 +623,7 @@ func Test_parseS3Log(t *testing.T) {
 			},
 			expectedLen:    0,
 			expectedStream: "",
+			expectedLog:    "level=debug msg=\"Parsing S3 log with labels: {__aws_log_type=\\\"s3_waf\\\", __aws_s3_waf=\\\"TEST-WEBACL\\\", __aws_s3_waf_owner=\\\"11111111111\\\"}\"\n",
 			wantErr:        true,
 		},
 		{
@@ -635,9 +631,7 @@ func Test_parseS3Log(t *testing.T) {
 			args: args{
 				batchSize: 131072, // Set large enough we don't try and send to promtail
 				filename:  "../testdata/waflog.log.gz",
-				b: &batch{
-					streams: map[string]*logproto.Stream{},
-				},
+				b:         newBatch(context.Background()),
 				labels: map[string]string{
 					"account_id": "11111111111",
 					"src":        "TEST-WEBACL",
@@ -645,8 +639,8 @@ func Test_parseS3Log(t *testing.T) {
 				},
 			},
 			expectedLen:    1,
-			expectedStream: `{__aws_log_type="s3_waf", __aws_s3_waf="TEST-WEBACL", __aws_s3_waf_owner="11111111111"}`,
-			expectedLog:    `level=warn msg="timestamp type of no_type parser unknown, using current time"` + "\n",
+			expectedStream: `{__aws_log_type="s3_waf", __aws_s3_waf="TEST-WEBACL", __aws_s3_waf_owner="11111111111", __lambda_promtail_stream_shard__="1"}`,
+			expectedLog:    "level=debug msg=\"Parsing S3 log with labels: {__aws_log_type=\\\"s3_waf\\\", __aws_s3_waf=\\\"TEST-WEBACL\\\", __aws_s3_waf_owner=\\\"11111111111\\\"}\"\nlevel=warn msg=\"timestamp type of no_type parser unknown, using current time\"\n",
 			wantErr:        false,
 		},
 	}
@@ -666,7 +660,7 @@ func Test_parseS3Log(t *testing.T) {
 			}
 			buf := &bytes.Buffer{}
 			log := log.NewLogfmtLogger(buf)
-			if err := parseS3Log(context.Background(), tt.args.b, tt.args.labels, tt.args.obj, &log); (err != nil) != tt.wantErr {
+			if err := parseS3Log(context.Background(), tt.args.b, tt.args.labels, elbTagsLabelSet, tt.args.obj, &log); (err != nil) != tt.wantErr {
 				t.Errorf("parseS3Log() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			require.Len(t, tt.args.b.streams, tt.expectedLen)

@@ -176,14 +176,10 @@ func parseS3Log(ctx context.Context, b *batch, labels map[string]string, elbTags
 	scanner := bufio.NewScanner(gzreader)
 
 	ls := model.LabelSet{
-		model.LabelName("__aws_log_type"):                              model.LabelValue(labels["type"]),
-		model.LabelName(fmt.Sprintf("__aws_%s", labels["type"])):       model.LabelValue(labels["src"]),
-		model.LabelName(fmt.Sprintf("__aws_%s_owner", labels["type"])): model.LabelValue(labels["account_id"]),
+		model.LabelName("__aws_log_type"):                                   model.LabelValue(parser.logTypeLabel),
+		model.LabelName(fmt.Sprintf("__aws_%s", parser.logTypeLabel)):       model.LabelValue(labels["src"]),
+		model.LabelName(fmt.Sprintf("__aws_%s_owner", parser.logTypeLabel)): model.LabelValue(labels[parser.ownerLabelKey]),
 	}.Merge(elbTagsLabelSet)
-	// 	model.LabelName("__aws_log_type"):                                   model.LabelValue(parser.logTypeLabel),
-	// 	model.LabelName(fmt.Sprintf("__aws_%s", parser.logTypeLabel)):       model.LabelValue(labels["src"]),
-	// 	model.LabelName(fmt.Sprintf("__aws_%s_owner", parser.logTypeLabel)): model.LabelValue(labels[parser.ownerLabelKey]),
-	// }
 
 	ls = applyLabels(ls)
 	level.Debug(*log).Log("msg", fmt.Sprintf("Parsing S3 log with labels: %v", ls))

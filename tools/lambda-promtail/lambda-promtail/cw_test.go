@@ -6,11 +6,14 @@ import (
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/stretchr/testify/require"
-
-	"github.com/grafana/loki/pkg/logproto"
 )
 
 func Test_parseCWEvent(t *testing.T) {
+	newBatch := func(ctx context.Context) *batch {
+		batch, _ := newBatch(ctx, nil, 0, 0, NewLogger("test"))
+		return batch
+	}
+
 	tests := []struct {
 		name           string
 		b              *batch
@@ -18,19 +21,15 @@ func Test_parseCWEvent(t *testing.T) {
 		keepStream     bool
 	}{
 		{
-			name: "cloudwatch",
-			b: &batch{
-				streams: map[string]*logproto.Stream{},
-			},
-			expectedStream: `{__aws_cloudwatch_log_group="testLogGroup", __aws_cloudwatch_owner="123456789123", __aws_log_type="cloudwatch"}`,
+			name:           "cloudwatch",
+			b:              newBatch(context.Background()),
+			expectedStream: `{__aws_cloudwatch_log_group="testLogGroup", __aws_cloudwatch_owner="123456789123", __aws_log_type="cloudwatch", __lambda_promtail_stream_shard__="1"}`,
 			keepStream:     false,
 		},
 		{
-			name: "cloudwatch_keepStream",
-			b: &batch{
-				streams: map[string]*logproto.Stream{},
-			},
-			expectedStream: `{__aws_cloudwatch_log_group="testLogGroup", __aws_cloudwatch_log_stream="testLogStream", __aws_cloudwatch_owner="123456789123", __aws_log_type="cloudwatch"}`,
+			name:           "cloudwatch_keepStream",
+			b:              newBatch(context.Background()),
+			expectedStream: `{__aws_cloudwatch_log_group="testLogGroup", __aws_cloudwatch_log_stream="testLogStream", __aws_cloudwatch_owner="123456789123", __aws_log_type="cloudwatch", __lambda_promtail_stream_shard__="1"}`,
 			keepStream:     true,
 		},
 	}

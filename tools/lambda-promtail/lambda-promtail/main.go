@@ -36,23 +36,23 @@ const (
 )
 
 var (
-	writeAddress                                              *url.URL
-	username, password, extraLabelsRaw, tenantID, bearerToken string
-	keepStream                                                bool
-	batchSize                                                 int
-	streamDesiredRate                                         float64
-	streamRateTrackerWindowSize                               time.Duration
-	s3Clients                                                 map[string]*s3.Client
-	elbClients                                                map[string]*elasticloadbalancingv2.Client
-	extraLabels                                               model.LabelSet
-	dropLabels                                                []model.LabelName
-	skipTlsVerify                                             bool
-	printLogLine                                              bool
-	elbTagsAsLabels                                           map[string]string
-	raygunAppName                                             string
-	raygunApiKey                                              string
-	secretId                                                  string
-	secrets                                                   map[string]string
+	writeAddress                                                             *url.URL
+	username, password, extraLabelsRaw, dropLabelsRaw, tenantID, bearerToken string
+	keepStream                                                               bool
+	batchSize                                                                int
+	streamDesiredRate                                                        float64
+	streamRateTrackerWindowSize                                              time.Duration
+	s3Clients                                                                map[string]*s3.Client
+	elbClients                                                               map[string]*elasticloadbalancingv2.Client
+	extraLabels                                                              model.LabelSet
+	dropLabels                                                               []model.LabelName
+	skipTlsVerify                                                            bool
+	printLogLine                                                             bool
+	elbTagsAsLabels                                                          map[string]string
+	raygunAppName                                                            string
+	raygunApiKey                                                             string
+	secretId                                                                 string
+	secrets                                                                  map[string]string
 )
 
 func getSecrets() error {
@@ -274,6 +274,13 @@ func handler(ctx context.Context, ev map[string]interface{}) error {
 		lvl = "info"
 	}
 	log := NewLogger(lvl)
+
+	evString, err := json.MarshalIndent(ev, "", "  ")
+	if err != nil {
+		level.Error(*log).Log("err", fmt.Errorf("failed to marshal event: %v", err))
+	}
+
+	level.Debug(*log).Log("msg", "Processing event", "event", evString)
 
 	raygunClient, err := raygun4go.New(raygunAppName, raygunApiKey)
 	if err != nil {

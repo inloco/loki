@@ -159,6 +159,7 @@ func getELBClient(ctx context.Context, region string) (*elasticloadbalancingv2.C
 }
 
 func parseS3Log(ctx context.Context, b *batch, labels map[string]string, elbTagsLabelSet model.LabelSet, obj io.ReadCloser, log *log.Logger) error {
+	level.Debug(*b.logger).Log("msg", "Parsing S3 log")
 	parser, ok := parsers[labels["type"]]
 	if !ok {
 		if labels["type"] == CLOUDTRAIL_DIGEST_LOG_TYPE {
@@ -185,6 +186,7 @@ func parseS3Log(ctx context.Context, b *batch, labels map[string]string, elbTags
 	// }
 
 	ls = applyLabels(ls)
+	level.Debug(*log).Log("msg", fmt.Sprintf("Parsing S3 log with labels: %v", ls))
 
 	// extract the timestamp of the nested event and sends the rest as raw json
 	if labels["type"] == CLOUDTRAIL_LOG_TYPE {
@@ -383,6 +385,8 @@ func getElbTagsLabelSet(ctx context.Context, labels map[string]string, log *log.
 }
 
 func processS3Event(ctx context.Context, ev *events.S3Event, pc Client, log *log.Logger, streamDesiredRate float64, streamRateTrackerWindowSize time.Duration) error {
+	level.Debug(*log).Log("msg", "Processing S3 event")
+
 	batch, err := newBatch(ctx, pc, streamDesiredRate, streamRateTrackerWindowSize, log)
 	if err != nil {
 		return err
@@ -422,6 +426,7 @@ func processS3Event(ctx context.Context, ev *events.S3Event, pc Client, log *log
 		}
 	}
 
+	level.Debug(*log).Log("msg", "[processS3Event] Flushing batch", "size", batch.size)
 	err = pc.sendToPromtail(ctx, batch)
 	if err != nil {
 		return err

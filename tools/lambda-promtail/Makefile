@@ -3,6 +3,7 @@ $(error ACCOUNT_ID is not set)
 endif
 
 IMAGE_NAME ?= ecr-public/grafana/lambda-promtail
+# IMAGE_TAG ?= incognia-$(shell date +%Y%m%d%H%M) # for development
 IMAGE_TAG ?= incognia-$(shell git describe --always --dirty --exclude '*')
 IMAGE_REPO ?= ${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/go-kit/log"
+	"github.com/go-kit/log/level"
 	"github.com/grafana/loki/pkg/logproto"
 	"github.com/prometheus/common/model"
 )
@@ -44,6 +45,8 @@ func parseCWEvent(ctx context.Context, b *batch, ev *events.CloudwatchLogsEvent)
 }
 
 func processCWEvent(ctx context.Context, ev *events.CloudwatchLogsEvent, pClient Client, log *log.Logger, streamDesiredRate float64, streamRateTrackerWindowSize time.Duration) error {
+	level.Debug(*log).Log("msg", "Processing CloudWatch log event")
+
 	batch, err := newBatch(ctx, pClient, streamDesiredRate, streamRateTrackerWindowSize, log)
 	if err != nil {
 		return err

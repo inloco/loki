@@ -83,6 +83,8 @@ func newBatch(
 }
 
 func (b *batch) add(ctx context.Context, e entry) error {
+	level.Debug(*b.logger).Log("msg", "Adding entry to batch")
+
 	e.labels[streamShardLabel] = model.LabelValue(fmt.Sprintf("%d", b.streamSharding.GetRandomShard()))
 	labels := labelsMapToString(e.labels, reservedLabelTenantID)
 
@@ -146,7 +148,10 @@ func (b *batch) createPushRequest() (*logproto.PushRequest, int) {
 }
 
 func (b *batch) flushBatch(ctx context.Context) error {
+	level.Debug(*b.logger).Log("msg", "Flushing batch")
+
 	if b.client != nil {
+		level.Debug(*b.logger).Log("msg", "client is not nil, sending batch to Promtail")
 		err := b.client.sendToPromtail(ctx, b)
 		if err != nil {
 			return err
@@ -162,11 +167,13 @@ func (b *batch) UpdateStreamSharding() {
 }
 
 func (b *batch) resetBatch() {
+	level.Debug(*b.logger).Log("msg", "Resetting batch", "size", b.size)
 	b.streams = make(map[string]*logproto.Stream)
 	b.size = 0
 }
 
 func (c *promtailClient) sendToPromtail(ctx context.Context, b *batch) error {
+	level.Debug(*c.log).Log("msg", "Sending batch to Promtail")
 	buf, _, err := b.encode()
 	if err != nil {
 		return err
@@ -201,7 +208,40 @@ func (c *promtailClient) sendToPromtail(ctx context.Context, b *batch) error {
 	return nil
 }
 
+func (c *promtailClient) printRequest(req *http.Request) {
+	var body string
+	if req.Body != nil {
+		buf := new(bytes.Buffer)
+		_, err := buf.ReadFrom(req.Body)
+		if err != nil {
+			level.Debug(*c.log).Log("Error reading request body: %v\n", err)
+		}
+		body = buf.String()
+		req.Body = io.NopCloser(bytes.NewBuffer(buf.Bytes())) // Reset the body for the actual request
+	}
+
+	level.Debug(*c.log).Log(
+		"msg", fmt.Sprintf(
+			"Request: Method: %s, URL: %s, Proto: %s, Header: %v, ContentLength: %d, TransferEncoding: %v, Host: %s, Form: %v, PostForm: %v, MultipartForm: %v, Trailer: %v, RemoteAddr: %s, RequestURI: %s, TLS: %v, Body: %s",
+			req.Method, req.URL.String(), req.Proto, req.Header, req.ContentLength, req.TransferEncoding, req.Host, req.Form, req.PostForm, req.MultipartForm, req.Trailer, req.RemoteAddr, req.RequestURI, req.TLS, body),
+		"err", nil)
+}
+
+func (c *promtailClient) printResponse(resp *http.Response, err error) {
+	body, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		level.Debug(*c.log).Log("Error reading body: %v\n", readErr)
+		return
+	}
+
+	level.Debug(*c.log).Log("msg", fmt.Sprintf("Response: Status: %s, StatusCode: %d, Headers: %v, Body: %s",
+		resp.Status, resp.StatusCode, resp.Header, string(body)),
+		"err", err)
+}
+
 func (c *promtailClient) send(ctx context.Context, buf []byte) (int, error) {
+	level.Debug(*c.log).Log("msg", "Sending logs to Promtail")
+
 	ctx, cancel := context.WithTimeout(ctx, c.config.http.timeout)
 	defer cancel()
 
@@ -224,10 +264,15 @@ func (c *promtailClient) send(ctx context.Context, buf []byte) (int, error) {
 		req.Header.Set("Authorization", "Bearer "+bearerToken)
 	}
 
+	c.printRequest(req)
+
 	resp, err := c.http.Do(req.WithContext(ctx))
 	if err != nil {
 		return -1, err
 	}
+
+	c.printResponse(resp, err)
+
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		scanner := bufio.NewScanner(io.LimitReader(resp.Body, maxErrMsgLen))

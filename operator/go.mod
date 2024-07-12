@@ -7,7 +7,7 @@ require (
 	github.com/go-logr/logr v1.3.0
 	github.com/google/go-cmp v0.6.0
 	github.com/google/uuid v1.4.0
-	github.com/grafana/loki v1.6.2-0.20230403212622-90888a0cc737
+	github.com/grafana/loki v6.7.8+incompatible
 	github.com/grafana/loki/operator/apis/loki v0.0.0-00010101000000-000000000000
 	github.com/imdario/mergo v0.3.16
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.7.0

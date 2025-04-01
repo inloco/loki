@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/go-kit/log"
@@ -28,9 +27,9 @@ type S3ObjectDetail struct {
 	Sequencer string `json:"sequencer"`
 }
 
-type s3EventProcessor func(ctx context.Context, ev *events.S3Event, pc Client, log *log.Logger, streamDesiredRate float64, streamRateTrackerWindowSize time.Duration) error
+type s3EventProcessor func(ctx context.Context, ev *events.S3Event, pc Client, log *log.Logger) error
 
-func processEventBridgeEvent(ctx context.Context, ev *events.CloudWatchEvent, pc Client, log *log.Logger, process s3EventProcessor, streamDesiredRate float64, streamRateTrackerWindowSize time.Duration) error {
+func processEventBridgeEvent(ctx context.Context, ev *events.CloudWatchEvent, pc Client, log *log.Logger, process s3EventProcessor) error {
 	// lambda-promtail should only be used with S3 object creation events, since those indicate that a new file has been
 	// added to bucket, and need to be fetched and parsed accordingly.
 	if !(ev.Source == "aws.s3" && ev.DetailType == "Object Created") {
@@ -59,5 +58,5 @@ func processEventBridgeEvent(ctx context.Context, ev *events.CloudWatchEvent, pc
 		},
 	}
 
-	return process(ctx, &s3Event, pc, log, streamDesiredRate, streamRateTrackerWindowSize)
+	return process(ctx, &s3Event, pc, log)
 }

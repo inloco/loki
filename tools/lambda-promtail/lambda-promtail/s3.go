@@ -380,10 +380,10 @@ func getElbTagsLabelSet(ctx context.Context, labels map[string]string, log *log.
 	return elbTagsLabelSet, nil
 }
 
-func processS3Event(ctx context.Context, ev *events.S3Event, pc Client, log *log.Logger, streamDesiredRate float64, streamRateTrackerWindowSize time.Duration) error {
+func processS3Event(ctx context.Context, ev *events.S3Event, pc Client, log *log.Logger) error {
 	level.Debug(*log).Log("msg", "Processing S3 event")
 
-	batch, err := newBatch(ctx, pc, streamDesiredRate, streamRateTrackerWindowSize, log)
+	batch, err := newBatch(ctx, pc, log)
 	if err != nil {
 		return err
 	}

@@ -49,8 +49,8 @@ func parseKinesisEvent(ctx context.Context, b batchIf, ev *events.KinesisEvent) 
 	return nil
 }
 
-func processKinesisEvent(ctx context.Context, ev *events.KinesisEvent, pClient Client, log *log.Logger, streamDesiredRate float64, streamRateTrackerWindowSize time.Duration) error {
-	batch, _ := newBatch(ctx, pClient, streamDesiredRate, streamRateTrackerWindowSize, log)
+func processKinesisEvent(ctx context.Context, ev *events.KinesisEvent, pClient Client, log *log.Logger) error {
+	batch, _ := newBatch(ctx, pClient, log)
 
 	err := parseKinesisEvent(ctx, batch, ev)
 	if err != nil {

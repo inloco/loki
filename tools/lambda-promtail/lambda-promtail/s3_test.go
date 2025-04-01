@@ -437,7 +437,7 @@ func Test_getLabels(t *testing.T) {
 
 func Test_parseS3Log(t *testing.T) {
 	newBatch := func(ctx context.Context) *batch {
-		batch, _ := newBatch(ctx, nil, 0, 0, NewLogger("test"))
+		batch, _ := newBatch(ctx, nil, NewLogger("test"))
 		return batch
 	}
 	elbTagsLabelSet := model.LabelSet{}
@@ -474,7 +474,7 @@ func Test_parseS3Log(t *testing.T) {
 				},
 			},
 			expectedLen:    1,
-			expectedStream: `{__aws_log_type="s3_vpc_flow", __aws_s3_vpc_flow="source", __aws_s3_vpc_flow_owner="123456789", __lambda_promtail_stream_shard__="1"}`,
+			expectedStream: `{__aws_log_type="s3_vpc_flow", __aws_s3_vpc_flow="source", __aws_s3_vpc_flow_owner="123456789"}`,
 			expectedLog:    "level=debug msg=\"Parsing S3 log with labels: {__aws_log_type=\\\"s3_vpc_flow\\\", __aws_s3_vpc_flow=\\\"source\\\", __aws_s3_vpc_flow_owner=\\\"123456789\\\"}\"\n",
 			wantErr:        false,
 		},
@@ -494,7 +494,7 @@ func Test_parseS3Log(t *testing.T) {
 				},
 			},
 			expectedLen:    1,
-			expectedStream: `{__aws_log_type="s3_lb", __aws_s3_lb="source", __aws_s3_lb_owner="123456789", __lambda_promtail_stream_shard__="1"}`,
+			expectedStream: `{__aws_log_type="s3_lb", __aws_s3_lb="source", __aws_s3_lb_owner="123456789"}`,
 			expectedTimestamps: []time.Time{
 				time.Date(2022, time.December, 6, 17, 42, 16, 176563000, time.UTC),
 				time.Date(2022, time.December, 6, 17, 42, 19, 86095000, time.UTC),
@@ -520,7 +520,7 @@ func Test_parseS3Log(t *testing.T) {
 				},
 			},
 			expectedLen:    1,
-			expectedStream: `{__aws_log_type="s3_lb", __aws_s3_lb="source", __aws_s3_lb_owner="123456789", __lambda_promtail_stream_shard__="1"}`,
+			expectedStream: `{__aws_log_type="s3_lb", __aws_s3_lb="source", __aws_s3_lb_owner="123456789"}`,
 			expectedTimestamps: []time.Time{
 				time.Date(2018, time.December, 20, 2, 59, 40, 0, time.UTC),
 				time.Date(2020, time.April, 1, 8, 51, 42, 0, time.UTC),
@@ -541,7 +541,7 @@ func Test_parseS3Log(t *testing.T) {
 				},
 			},
 			expectedLen:    1,
-			expectedStream: `{__aws_log_type="s3_cloudtrail", __aws_s3_cloudtrail="source", __aws_s3_cloudtrail_owner="123456789", __lambda_promtail_stream_shard__="1"}`,
+			expectedStream: `{__aws_log_type="s3_cloudtrail", __aws_s3_cloudtrail="source", __aws_s3_cloudtrail_owner="123456789"}`,
 			expectedTimestamps: []time.Time{
 				time.Date(2023, time.May, 19, 7, 44, 30, 0, time.UTC),
 				time.Date(2023, time.May, 19, 7, 44, 34, 0, time.UTC),
@@ -579,7 +579,7 @@ func Test_parseS3Log(t *testing.T) {
 				},
 			},
 			expectedLen:    1,
-			expectedStream: `{__aws_log_type="s3_cloudfront", __aws_s3_cloudfront="DISTRIBUTIONID", __aws_s3_cloudfront_owner="path/to/file", __lambda_promtail_stream_shard__="1"}`,
+			expectedStream: `{__aws_log_type="s3_cloudfront", __aws_s3_cloudfront="DISTRIBUTIONID", __aws_s3_cloudfront_owner="path/to/file"}`,
 			expectedTimestamps: []time.Time{
 				time.Date(2023, time.April, 26, 7, 25, 11, 0, time.UTC),
 				time.Date(2023, time.April, 26, 7, 25, 11, 0, time.UTC),
@@ -600,7 +600,7 @@ func Test_parseS3Log(t *testing.T) {
 				},
 			},
 			expectedLen:    1,
-			expectedStream: `{__aws_log_type="s3_waf", __aws_s3_waf="TEST-WEBACL", __aws_s3_waf_owner="11111111111", __lambda_promtail_stream_shard__="1"}`,
+			expectedStream: `{__aws_log_type="s3_waf", __aws_s3_waf="TEST-WEBACL", __aws_s3_waf_owner="11111111111"}`,
 			expectedLog:    "level=debug msg=\"Parsing S3 log with labels: {__aws_log_type=\\\"s3_waf\\\", __aws_s3_waf=\\\"TEST-WEBACL\\\", __aws_s3_waf_owner=\\\"11111111111\\\"}\"\n",
 			expectedTimestamps: []time.Time{
 				time.Date(2023, time.August, 31, 4, 57, 42, 729000000, time.UTC),
@@ -639,7 +639,7 @@ func Test_parseS3Log(t *testing.T) {
 				},
 			},
 			expectedLen:    1,
-			expectedStream: `{__aws_log_type="s3_waf", __aws_s3_waf="TEST-WEBACL", __aws_s3_waf_owner="11111111111", __lambda_promtail_stream_shard__="1"}`,
+			expectedStream: `{__aws_log_type="s3_waf", __aws_s3_waf="TEST-WEBACL", __aws_s3_waf_owner="11111111111"}`,
 			expectedLog:    "level=debug msg=\"Parsing S3 log with labels: {__aws_log_type=\\\"s3_waf\\\", __aws_s3_waf=\\\"TEST-WEBACL\\\", __aws_s3_waf_owner=\\\"11111111111\\\"}\"\nlevel=warn msg=\"timestamp type of no_type parser unknown, using current time\"\n",
 			wantErr:        false,
 		},

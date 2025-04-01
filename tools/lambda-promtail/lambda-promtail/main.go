@@ -9,7 +9,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/MindscapeHQ/raygun4go"
 	"github.com/go-kit/log"
@@ -40,8 +39,6 @@ var (
 	username, password, extraLabelsRaw, dropLabelsRaw, tenantID, bearerToken string
 	keepStream                                                               bool
 	batchSize                                                                int
-	streamDesiredRate                                                        float64
-	streamRateTrackerWindowSize                                              time.Duration
 	s3Clients                                                                map[string]*s3.Client
 	elbClients                                                               map[string]*elasticloadbalancingv2.Client
 	extraLabels                                                              model.LabelSet
@@ -137,24 +134,6 @@ func setupArguments() {
 	batchSize = 131072
 	if batch != "" {
 		batchSize, _ = strconv.Atoi(batch)
-	}
-
-	streamDesiredRateRaw := os.Getenv("STREAM_DESIRED_RATE")
-	if streamDesiredRateRaw == "" {
-		streamDesiredRateRaw = "1"
-	}
-	streamDesiredRate, err = strconv.ParseFloat(streamDesiredRateRaw, 64)
-	if err != nil {
-		panic(err)
-	}
-
-	streamRateTrackerWindowSizeRaw := os.Getenv("STREAM_RATE_TRACKER_WINDOW_SIZE")
-	if streamRateTrackerWindowSizeRaw == "" {
-		streamRateTrackerWindowSizeRaw = "100ms"
-	}
-	streamRateTrackerWindowSize, err = time.ParseDuration(streamRateTrackerWindowSizeRaw)
-	if err != nil {
-		panic(err)
 	}
 
 	print := os.Getenv("PRINT_LOG_LINE")
@@ -309,17 +288,17 @@ func handler(ctx context.Context, ev map[string]interface{}) error {
 
 	switch evt := event.(type) {
 	case *events.CloudWatchEvent:
-		err = processEventBridgeEvent(ctx, evt, pClient, pClient.log, processS3Event, streamDesiredRate, streamRateTrackerWindowSize)
+		err = processEventBridgeEvent(ctx, evt, pClient, pClient.log, processS3Event)
 	case *events.S3Event:
-		err := processS3Event(ctx, evt, pClient, log, streamDesiredRate, streamRateTrackerWindowSize)
+		err := processS3Event(ctx, evt, pClient, log)
 		level.Error(*pClient.log).Log("err", err)
 		return err
 	case *events.CloudwatchLogsEvent:
-		err := processCWEvent(ctx, evt, pClient, log, streamDesiredRate, streamRateTrackerWindowSize)
+		err := processCWEvent(ctx, evt, pClient, log)
 		level.Error(*pClient.log).Log("err", err)
 		return err
 	case *events.KinesisEvent:
-		err := processKinesisEvent(ctx, evt, pClient, log, streamDesiredRate, streamRateTrackerWindowSize)
+		err := processKinesisEvent(ctx, evt, pClient, log)
 		level.Error(*pClient.log).Log("err", err)
 		return err
 	case *events.SQSEvent:

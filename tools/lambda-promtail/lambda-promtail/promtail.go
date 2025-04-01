@@ -29,8 +29,6 @@ const (
 
 	reservedLabelTenantID = "__tenant_id__"
 
-	streamShardLabel = "__lambda_promtail_stream_shard__"
-
 	userAgent = "lambda-promtail"
 )
 
@@ -40,13 +38,10 @@ type entry struct {
 }
 
 type batch struct {
-	streams                     map[string]*logproto.Stream
-	streamSharding              *StreamSharding
-	streamDesiredRate           float64
-	streamRateTrackerWindowSize time.Duration
-	size                        int
-	client                      Client
-	logger                      *log.Logger
+	streams map[string]*logproto.Stream
+	size    int
+	client  Client
+	logger  *log.Logger
 }
 
 type batchIf interface {
@@ -59,18 +54,13 @@ type batchIf interface {
 func newBatch(
 	ctx context.Context,
 	pClient Client,
-	streamDesiredRate float64,
-	streamRateTrackerWindowSize time.Duration,
 	logger *log.Logger,
 	entries ...entry,
 ) (*batch, error) {
 	b := &batch{
-		streams:                     map[string]*logproto.Stream{},
-		streamSharding:              NewStreamSharding(streamDesiredRate, streamRateTrackerWindowSize, logger),
-		streamDesiredRate:           streamDesiredRate,
-		streamRateTrackerWindowSize: streamRateTrackerWindowSize,
-		client:                      pClient,
-		logger:                      logger,
+		streams: map[string]*logproto.Stream{},
+		client:  pClient,
+		logger:  logger,
 	}
 
 	for _, entry := range entries {
@@ -85,7 +75,6 @@ func newBatch(
 func (b *batch) add(ctx context.Context, e entry) error {
 	level.Debug(*b.logger).Log("msg", "Adding entry to batch")
 
-	e.labels[streamShardLabel] = model.LabelValue(fmt.Sprintf("%d", b.streamSharding.GetRandomShard()))
 	labels := labelsMapToString(e.labels, reservedLabelTenantID)
 
 	stream, ok := b.streams[labels]
@@ -162,10 +151,6 @@ func (b *batch) flushBatch(ctx context.Context) error {
 	return nil
 }
 
-func (b *batch) UpdateStreamSharding() {
-	b.streamSharding.Update(int64(b.size))
-}
-
 func (b *batch) resetBatch() {
 	level.Debug(*b.logger).Log("msg", "Resetting batch", "size", b.size)
 	b.streams = make(map[string]*logproto.Stream)
@@ -184,8 +169,6 @@ func (c *promtailClient) sendToPromtail(ctx context.Context, b *batch) error {
 	for {
 		// send uses `timeout` internally, so `context.Background` is good enough.
 		status, err = c.send(context.Background(), buf)
-
-		b.UpdateStreamSharding()
 
 		// Only retry 429s, 500s and connection-level errors.
 		if status > 0 && status != 429 && status/100 != 5 {

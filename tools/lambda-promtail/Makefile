@@ -8,7 +8,7 @@ IMAGE_TAG ?= incognia-$(shell git describe --always --dirty --exclude '*')
 IMAGE_REPO ?= ${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com
 
 docker-build:
-	docker build -t $(IMAGE_NAME):$(IMAGE_TAG) -f tools/lambda-promtail/Dockerfile .
+	docker build -t $(IMAGE_NAME):$(IMAGE_TAG) -f Dockerfile .
 .PHONY: docker-build
 
 docker-tag:

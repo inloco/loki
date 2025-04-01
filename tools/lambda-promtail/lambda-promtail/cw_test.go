@@ -10,7 +10,7 @@ import (
 
 func Test_parseCWEvent(t *testing.T) {
 	newBatch := func(ctx context.Context) *batch {
-		batch, _ := newBatch(ctx, nil, 0, 0, NewLogger("test"))
+		batch, _ := newBatch(ctx, nil, NewLogger("test"))
 		return batch
 	}
 
@@ -23,13 +23,13 @@ func Test_parseCWEvent(t *testing.T) {
 		{
 			name:           "cloudwatch",
 			b:              newBatch(context.Background()),
-			expectedStream: `{__aws_cloudwatch_log_group="testLogGroup", __aws_cloudwatch_owner="123456789123", __aws_log_type="cloudwatch", __lambda_promtail_stream_shard__="1"}`,
+			expectedStream: `{__aws_cloudwatch_log_group="testLogGroup", __aws_cloudwatch_owner="123456789123", __aws_log_type="cloudwatch"}`,
 			keepStream:     false,
 		},
 		{
 			name:           "cloudwatch_keepStream",
 			b:              newBatch(context.Background()),
-			expectedStream: `{__aws_cloudwatch_log_group="testLogGroup", __aws_cloudwatch_log_stream="testLogStream", __aws_cloudwatch_owner="123456789123", __aws_log_type="cloudwatch", __lambda_promtail_stream_shard__="1"}`,
+			expectedStream: `{__aws_cloudwatch_log_group="testLogGroup", __aws_cloudwatch_log_stream="testLogStream", __aws_cloudwatch_owner="123456789123", __aws_log_type="cloudwatch"}`,
 			keepStream:     true,
 		},
 	}

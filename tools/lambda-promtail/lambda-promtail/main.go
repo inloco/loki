@@ -178,7 +178,7 @@ func parseElbTagsAsLabels(elbTagsAsLabelsRaw string) (map[string]string, error) 
 	elbTagsAsLabels := make(map[string]string)
 	elbTagsAsLabelsSplit := strings.Split(elbTagsAsLabelsRaw, ",")
 	for _, tagLabelMappingRaw := range elbTagsAsLabelsSplit {
-		tagLabelMappingSplit := strings.Split(tagLabelMappingRaw, ":")
+		tagLabelMappingSplit := strings.Split(tagLabelMappingRaw, ";")
 		if len(tagLabelMappingSplit) == 0 {
 			return nil, fmt.Errorf(invalidElbTagsAsLabelsError)
 		}

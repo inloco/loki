@@ -347,12 +347,14 @@ func getElbTagsLabelSet(ctx context.Context, labels map[string]string, log *log.
 	elbTagsLabelSet := model.LabelSet{}
 	for tagKey, tagValue := range elbTags {
 		elbTagAsLabels := elbTagsAsLabels[tagKey]
+		level.Info(*log).Log("msg", fmt.Sprintf("elbTagAsLabels: %s | tagKey: %s | tagValue %s", elbTagAsLabels, tagKey, tagValue))
 		if elbTagAsLabels[0] == '/' && elbTagAsLabels[len(elbTagAsLabels)-1] == '/' {
-			labelsValuesRE, err := regexp.Compile(elbTagAsLabels[1 : len(elbTagAsLabels)-1])
+			toCompile := elbTagAsLabels[1 : len(elbTagAsLabels)-1]
+			labelsValuesRE, err := regexp.Compile(toCompile)
 			if err != nil {
 				return nil, fmt.Errorf("Could not define labels from tag %s: invalid regular expression %s", tagKey, elbTagAsLabels)
 			}
-
+			level.Info(*log).Log("msg", fmt.Sprintf("Regex compiled: %s ", toCompile))
 			labelsNames := labelsValuesRE.SubexpNames()
 			labelsValues := labelsValuesRE.FindStringSubmatch(tagValue)
 			for i, labelName := range labelsNames {
@@ -364,6 +366,7 @@ func getElbTagsLabelSet(ctx context.Context, labels map[string]string, log *log.
 					return nil, fmt.Errorf("Could not define labels from tag %s: capture group must be named", tagKey)
 				}
 				if i != 0 {
+					level.Info(*log).Log("msg", fmt.Sprintf("adding label to set. labelname: %s | label Values: %s | tagKey: %s", labelName, labelsValues[i], tagKey))
 					if err := addToElbTagsLabelSet(elbTagsLabelSet, labelName, labelsValues[i], tagKey); err != nil {
 						return nil, err
 					}
